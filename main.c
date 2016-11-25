@@ -67,6 +67,13 @@ void DelayUS(uint32_t us)
 	while((SysTick-_time)<us);
 }
 
+void DelayMS(uint32_t ms)
+{
+	uint32_t _time=SysTick;
+
+	while((SysTick-_time)<(ms*1000));
+}
+
 // Calculates axis deltas, used any time target units change
 void calculate_deltas(void)
 {
@@ -117,24 +124,18 @@ void set_target(float x, float y)
 	// Recalculate deltas
 	calculate_deltas();
 
-	// Don't bother setting up the DDA if we're already there
-	if((ts[0]==cs[0])&&(ts[1]==cs[1]))
-		return;
-	else
+	// Set up total steps from dominant axis and set a flag for which one
+	if(ds[0]>ds[1]) // X over Y
 	{
-		// Set up total steps from dominant axis and set a flag for which one
-		if(ds[0]>ds[1]) // X over Y
-		{
-			dda_daxis=0;
-			dda_steps=ds[0];
-			dda_over=ds[0]/2;
-		}
-		else // Y over X
-		{
-			dda_daxis=1;
-			dda_steps=ds[1];
-			dda_over=ds[1]/2;
-		}
+		dda_daxis=0;
+		dda_steps=ds[0];
+		dda_over=ds[0]/2;
+	}
+	else // Y over X
+	{
+		dda_daxis=1;
+		dda_steps=ds[1];
+		dda_over=ds[1]/2;
 	}
 }
 
