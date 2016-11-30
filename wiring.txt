@@ -10,6 +10,8 @@ Y encoder B = PTB0 (Interrupt)
 X encoder A = PTC6 (Interrupt)
 X encoder B = PTC7 (Interrupt)
 
+Load button = PTD1 (Interrupt)
+
 LED Enable = +3.3v
 
 Head solenoid = PTC5 (Output)

@@ -17,7 +17,10 @@
 
 extern volatile uint32_t SysTick;
 
+// Target axis' steps (absolute)
 extern volatile int32_t Target[2];
+// Axis' encoder counter (absolute)
+extern volatile int32_t EncoderPos[2];
 
 #ifndef min
 #define min(a, b) ((a)<(b)?(a):(b))
@@ -209,7 +212,6 @@ void process_string(void)
 {
 	int code; // Current command code
 	float t[2]={ 0.0f, 0.0f }; // Temp coord
-	uint32_t feedrate_micros; // Feedrate in microseconds
 
 	float c[2]={ 0.0f, 0.0f }; // Arc center coord
 	int steps, s; // Temps for arc calculation
@@ -259,13 +261,8 @@ void process_string(void)
 				// Set target position
 				set_target(t[0], t[1]);
 
-				if(code==0) // Special case for rapid move
-					feedrate_micros=calculate_feedrate_delay(250);
-				else
-					feedrate_micros=calculate_feedrate_delay(feedrate);
-
-				// Go there
-				dda_move(feedrate_micros);
+				// Go there, if code = 0 then set rapid feedrate
+				dda_move(calculate_feedrate_delay(code?feedrate:250));
 				break;
 
 			// CW/CCW arc
@@ -312,8 +309,7 @@ void process_string(void)
 					float theta=start_angle+angle*sf;
 
 					set_target(c[0]+cos(theta)*radius, c[1]+sin(theta)*radius);
-					feedrate_micros=calculate_feedrate_delay(feedrate);
-					dda_move(feedrate_micros);
+					dda_move(calculate_feedrate_delay(feedrate));
 				}
 				break;
 
@@ -333,15 +329,15 @@ void process_string(void)
 			// Go home
 			case 28:
 				set_target(0.0f, 0.0f);
-				dda_move(100);
+				dda_move(calculate_feedrate_delay(100.0f));
 				break;
 
 			// Go home in two steps
 			case 30:
 				set_target(t[0], t[1]);
-				dda_move(100);
+				dda_move(calculate_feedrate_delay(100.0f));
 				set_target(0.0f, 0.0f);
-				dda_move(100);
+				dda_move(calculate_feedrate_delay(100.0f));
 				break;
 
 			// Set absolute mode
@@ -409,12 +405,98 @@ void process_string(void)
 	CDC_SendString((CDC_TComData *)"huh?\r\n");
 }
 
+// Simple hard-stop axis homing function.
+// It's a bit of a hack, but works.
+void HomeXAxis(void)
+{
+	int32_t prevcount=0, prevtime=0;
+
+	// Disable motor drive PID loop
+	MotorDisable();
+
+	// Store current X encoder position
+	prevcount=EncoderPos[0];
+	// Store current tick
+	prevtime=SysTick;
+
+	// Drive the X motor home with enough torque to move it at a good pace, but not so much that it can't be stopped by the hard-stop.
+	MotorCtrlX(-40000);
+
+	// Let it move for a few ticks to generate some delta
+	DelayMS(10);
+
+	while(1)
+	{
+		// Velocity of motion over 1mS (1000uS)
+		if((SysTick-prevtime)>1000)
+		{
+			// Calculate the delta position from the last mS
+			int32_t dC=abs(EncoderPos[0]-prevcount);
+
+			// If the velocity drops below 1 step/mS, we've hit the hard-stop and drop out of the loop
+			if(dC<1)
+				break;
+
+			// Otherwise, update the previous position/time and continue on
+			prevcount=EncoderPos[0];
+			prevtime=SysTick;
+		}
+	}
+
+	// Stop the motor and let it settle
+	MotorCtrlX(0);
+	DelayMS(100);
+
+	// Zero out encoder and step positions
+	EncoderPos[0]=0;
+	EncoderPos[1]=0;
+	Target[0]=0;
+	Target[1]=0;
+
+	// Zero out the CNC position
+	set_position(0.0f, 0.0f);
+
+	// Let it settle again and reenable the PID loop
+	DelayMS(100);
+	MotorEnable();
+
+	// We're home!
+}
+
+uint8_t Loaded=0;
+
+void LoadYAxis(void)
+{
+	if(!Loaded)
+	{
+		// Load it in, sets home to upper left corner
+		set_position(0.0f, 0.0f);
+		set_target(0.0f, -1.875f);
+		dda_move(calculate_feedrate_delay(250.0f));
+		set_position(0.0f, 0.0f);
+		Loaded=1;
+	}
+	else
+	{
+		// Load it out, run out enough to eject it no matter where.
+		set_position(0.0f, 0.0f);
+		set_target(0.0f, -14.0f);
+		dda_move(calculate_feedrate_delay(250.0f));
+		set_position(0.0f, 0.0f);
+		Loaded=0;
+	}
+}
+
 int main(void)
 {
 	// Onboard LED output pin (head up/down solenoid)
 	PORTC_PCR5=PORT_PCR_MUX(1);
 	GPIOC_PDDR|=0x0020;
 	GPIOC_PCOR|=0x0020;
+
+	// PTD1 = Load button
+	PORTD_PCR1=((PORTD_PCR1&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x06)))|(PORT_PCR_MUX(0x01)));
+	GPIOD_PDDR&=~0x0002;
 
 	// Initialize X/Y motor PWM channels, set 0 duty (FFFFh = 0%, 0 = 100%)
 	PWM_Init();
@@ -429,8 +511,14 @@ int main(void)
 	// Initialize USB CDC virtual serial device
 	CDC_Init();
 
+	// Home the X axis
+	HomeXAxis();
+
 	while(1)
 	{
+		if(!(GPIOD_PDIR&0x0002)&&!(GPIOD_PDIR&0x0002))
+			LoadYAxis();
+
 		Incoming=CDC_GetCharsInRxBuf();
 
 		if(Incoming>0)

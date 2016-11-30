@@ -57,7 +57,7 @@ uint8_t EncoderQuad[2];
 uint8_t EncoderPrevQuad[2];
 
 volatile int32_t Target[2]={ 0, 0 }; // Encoder coords to target (these do the moving)
-int32_t EncoderPos[2]; // Actual encoder tracking coords
+volatile int32_t EncoderPos[2]; // Actual encoder tracking coords
 
 // Set X axis motor PWM, neg values run opposite direction
 void MotorCtrlX(int32_t PWM)
@@ -145,7 +145,7 @@ void __attribute__ ((interrupt)) Cpu_ivINT_PORTB(void)
 // PID stuff
 
 //Position multiplier
-#define KP 6000.0f
+#define KP 5000.0f
 // Derivative multiplier
 #define KD 24000.0f
 
@@ -177,6 +177,26 @@ void __attribute__ ((interrupt)) Cpu_ivINT_FTM1(void)
 		lastError[0]=error[0];
 		lastError[1]=error[1];
 	}
+}
+
+// Sets PID interrupt to system clock, enabling it.
+void MotorEnable(void)
+{
+	lastError[0]=0;
+	lastError[1]=0;
+
+	FTM1_SC=(FTM1_SC&(~(FTM_SC_CLKS_MASK&FTM_SC_TOF_MASK)))|(0x08);
+	FTM1_SC=FTM_SC_TOIE_MASK|FTM_SC_CLKS(0x02)|FTM_SC_PS(0x00);
+}
+
+// Removes clock source from PID interrupt timer, disabling it.
+// Also sets axis motors to 0 PWM.
+void MotorDisable(void)
+{
+	FTM1_SC=(FTM1_SC&(~(FTM_SC_CLKS_MASK&FTM_SC_TOF_MASK)))|(0x00);
+	FTM1_SC=FTM_SC_TOIE_MASK|FTM_SC_CLKS(0x00)|FTM_SC_PS(0x00);
+	MotorCtrlX(0);
+	MotorCtrlY(0);
 }
 
 void Motor_Init(void)
