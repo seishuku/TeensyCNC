@@ -40,7 +40,7 @@
  *****************************************************************************/
 #include "types.h"          /* User Defined Data Types */
 #include "hidef.h"          /* for EnableInterrupts macro */
-#include "mk20d7.h"     /* include peripheral declarations */
+#include "MK20D7.h"     /* include peripheral declarations */
 #include "usb_user_config.h"    /* User Configuration File << EST 'user_config.h' conflicts with MQX Lite */
 /******************************************************************************
  * Constants - None

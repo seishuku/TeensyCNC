@@ -22,7 +22,7 @@ void CDC_Notify_Callback(uint8_t controller_ID, uint8_t event_type, void *val);
 #define CDC_ClearTxBuffer() Tx_Clear()
 uint8_t CDC_SendBlock(uint8_t *data, uint16_t dataSize);
 uint8_t CDC_SendDataBlock(uint8_t *data, uint16_t dataSize);
-uint8_t CDC_ApplicationStarted(void);
-uint8_t CDC_TransactionsStarted(void);
+uint8_t CDC1_ApplicationStarted(void);
+uint8_t CDC1_TransactionsStarted(void);
 
 #endif

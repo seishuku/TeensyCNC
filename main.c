@@ -7,13 +7,33 @@
 //
 // This all can be improved drastically, but it's a well working CNC example. G-code interpreter needs syntax checking, badly.
 
-#include "mk20d7.h"
+// Modifications made by Alun Jones (macros, pen up/down on Z, bootloader entry, job tracing, help, etc!)
+
+#include "MK20D7.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <math.h>
+#include <ctype.h>
 #include "pwm.h"
 #include "motor.h"
 #include "cdc.h"
+
+struct {
+	char *macro;
+	char *replacement;
+	char *help;
+} macros[] = {
+	{ "load",       "M39",     "Load mat in two stages (slow then fast)" },
+	{ "unload",     "M40",     "Eject mat" },
+	{ "trace",      "M111 S1", "Trace job without cutting" },
+	{ "showbbox",   "M111 S3", "Trace bounding box of job" },
+	{ "printbbox",  "M111 S2", "Don't move head at all, but print bounding box after job" },
+	{ "cut",        "M111",    "Normal cutting mode" },
+	{ "bootloader", "M112",    "Enter bootloader" },
+	{ "help",       "M115",    "Show help" },
+	{ NULL, NULL, NULL }
+};
 
 extern volatile uint32_t SysTick;
 
@@ -38,7 +58,9 @@ extern volatile int32_t EncoderPos[2];
 #define CURVE_SECTION_INCHES 0.005f
 
 // Current, Target, and Delta axis units (working units, inches, MM, etc)
-float cu[2]={ 0.0f, 0.0f }; // Current
+#define MM_TO_INCHES (1.0f/25.4f)
+float scale_to_inches = 1.0f;   // Default to inches at start.
+float cu[3]={ 0.0f, 0.0f, 0.0f }; // Current
 float tu[2]={ 0.0f, 0.0f }; // Target
 float du[2]={ 0.0f, 0.0f }; // Delta
 
@@ -54,13 +76,59 @@ int8_t dir[2]={ 1, 1 };
 float feedrate=90.0f;
 
 // Motion mode, 0 = incremental; 1 = absolute
-uint8_t abs_mode=0;
+uint8_t abs_mode=1;
+
+// Level 1 => Don't drop cutting head.
+// Level 2 => Don't do actual moves.
+// Level 3 => Parse up to M2, then sweep bounding box with head up.
+// Anything else => Turn debugging off.
+enum _DL {
+	DEBUG_NONE = 0,
+	DEBUG_NOCUT = 1,
+	DEBUG_NOMOVE = 2,
+	DEBUG_BBOX_ON_M2 = 3,
+	DEBUG_INVALID = 4
+} DebugLevel = DEBUG_NONE;
+
+void SetJobDefaults(void)
+{
+    feedrate = 90.0f;
+    abs_mode = 1;
+    scale_to_inches = 1.0f;
+    DebugLevel = DEBUG_NONE;
+}
 
 // Incoming serial buffer stuff
 #define COMMAND_SIZE 128
 char buffer[COMMAND_SIZE];
 uint8_t serial_count=0, comment=0;
 uint32_t Incoming=0;
+uint8_t cancelling = 0;
+uint8_t button_pressed = 0;
+
+enum {
+	LOAD_UNLOADED = 0,
+	LOAD_GRABBED = 1,
+	LOAD_LOADED = 2,
+} LoadState = LOAD_UNLOADED;
+
+// Some helpful printing functions.
+void cdc_print(char *s)
+{
+	if (CDC1_ApplicationStarted())
+	{
+		CDC_SendString((CDC_TComData *)s);
+		(void)CDC_GetCharsInRxBuf();
+	}
+}
+#define INFO(x)    cdc_print("* " x "\r\n")
+#define RESULT(x)  cdc_print(x "\r\n")
+
+int8_t bboxstart = 0, head_is_down = 0;
+float bb[4] = { 0, 0, 0, 0};
+
+void LoadYAxis(void);
+void EndJob(void);
 
 // Simple delay using ARM systick, set up for microseconds (see startup.c)
 void DelayUS(uint32_t us)
@@ -70,11 +138,80 @@ void DelayUS(uint32_t us)
 	while((SysTick-_time)<us);
 }
 
+void PollButton(void);
 void DelayMS(uint32_t ms)
 {
 	uint32_t _time=SysTick;
 
-	while((SysTick-_time)<(ms*1000));
+	while((SysTick-_time)<(ms*1000))
+		PollButton();
+}
+
+void EnterBootLoader(void)
+{
+	MotorDisable();
+	INFO("Entering bootloader");
+
+	DelayMS(500);
+
+	__asm__ volatile("bkpt");
+
+	// NOT REACHED!
+	while (1);
+}
+
+void HeadUp(void)
+{
+	// In all debug modes, keep the cutter raised.
+	head_is_down = 0;
+	if (DebugLevel == DEBUG_NONE)
+	{
+		GPIOC_PCOR|=0x0020;
+		DelayMS(300); // Delay, limits pen/knife slap/skipping
+	}
+}
+
+void HeadDown(void)
+{
+	// In all debug modes, keep the cutter raised.
+	head_is_down = 1;
+	if (DebugLevel == DEBUG_NONE)
+	{
+		GPIOC_PSOR|=0x0020;
+		DelayMS(300);  // Delay, limits pen/knife slap/skipping
+	}
+}
+
+void PollButton(void)
+{
+	static uint32_t last_transition = 0;
+	static uint8_t oldstate = 0;
+	static uint8_t flagged = 0;
+	static uint8_t bootflagged = 0;
+
+	uint8_t state = !(GPIOD_PDIR & 0x0002);
+	if (state != oldstate)
+	{
+		last_transition = SysTick;
+		flagged = 0;
+	}
+
+	// If the button is pressed and we've not yet flagged it and 
+	// the state has been stable for 5ms then flag it.
+	if ((state == 1) && !flagged && (SysTick - last_transition > 5000))
+	{
+		button_pressed = 1;
+		flagged = 1;
+	}
+	if ((state == 1) && !bootflagged && (SysTick - last_transition > 1500000))
+	{
+		// If the button is held, enter the bootloader. This
+		// acts as an emergency stop on the motors and an emergency
+		// method of getting to the bootloader. Never returns...
+		bootflagged = 1;
+		EnterBootLoader();
+	}
+	oldstate = state;
 }
 
 // Calculates axis deltas, used any time target units change
@@ -154,19 +291,49 @@ void set_position(float x, float y)
 // Run the actual move, stripped bare, hopefully makes it faster
 void dda_move(uint32_t delay)
 {
-	// Loop until we're out of steps
-	while(dda_steps--)
+	if (DebugLevel == DEBUG_NOMOVE || DebugLevel == DEBUG_BBOX_ON_M2)
 	{
-		Target[dda_daxis]+=dir[dda_daxis];
-		dda_over+=ds[!dda_daxis];
-
-		if(dda_over>=ds[dda_daxis])
+		// In these debug modes, we don't drive the motors.
+		if (head_is_down)
 		{
-			dda_over-=ds[dda_daxis];
-			Target[!dda_daxis]+=dir[!dda_daxis];
+			// Keep track of the bounding box.
+			if (bboxstart || (tu[0] < bb[0]))
+			{
+				bb[0] = tu[0];
+			}
+			if (bboxstart || (tu[0] > bb[2]))
+			{
+				bb[2] = tu[0];
+			}
+			if (bboxstart || (tu[1] < bb[1]))
+			{
+				bb[1] = tu[1];
+			}
+			if (bboxstart || (tu[1] > bb[3]))
+			{
+				bb[3] = tu[1];
+			}
+			bboxstart = 0;
 		}
+		dda_steps = 0;
+	}
+	else
+	{
+		// Loop until we're out of steps
+		while(!button_pressed && dda_steps--)
+		{
+			Target[dda_daxis]+=dir[dda_daxis];
+			dda_over+=ds[!dda_daxis];
 
-		DelayUS(delay);
+			if(dda_over>=ds[dda_daxis])
+			{
+				dda_over-=ds[dda_daxis];
+				Target[!dda_daxis]+=dir[!dda_daxis];
+			}
+
+			DelayUS(delay);
+			PollButton();
+		}
 	}
 
 	// Arrived at target
@@ -203,7 +370,7 @@ uint8_t has_command(char key)
 		if(buffer[i]==key)
 			return 1;
 	}
-	
+
 	return 0;
 }
 
@@ -211,13 +378,31 @@ uint8_t has_command(char key)
 void process_string(void)
 {
 	int code; // Current command code
-	float t[2]={ 0.0f, 0.0f }; // Temp coord
+	float t[3]={ 0.0f, 0.0f, 0.0f }; // Temp coord
 
 	float c[2]={ 0.0f, 0.0f }; // Arc center coord
 	int steps, s; // Temps for arc calculation
 	float start_angle, end_angle, angle, radius, a[2], b[2];
 
-	if(has_command('G')||has_command('X')||has_command('Y')||has_command('F'))
+	// Blank line?
+	if (buffer[0] == 0)
+	{
+		RESULT("ok");
+		return;
+	}
+
+	// Macro replacement.
+	for (int i=0; macros[i].macro != NULL; i++)
+	{
+		if (strcmp(buffer, macros[i].macro) == 0)
+		{
+			strcpy(buffer, macros[i].replacement);
+			serial_count = strlen(buffer);
+			break;
+		}
+	}
+
+	if(has_command('G')||has_command('X')||has_command('Y')||has_command('Z')||has_command('F'))
 	{
 		code=(int)search_string('G');
 
@@ -228,28 +413,46 @@ void process_string(void)
 			case 2:
 			case 3:
 			case 30:
-				// Prefetch X, Y, and Feedrate
+				// Prefetch X, Y, Z and Feedrate
 
-				if(abs_mode) // Get specified X/Y coords from command, absoulte mode
+				if(abs_mode) // Get specified X/Y/Z coords from command, absolute mode
 				{
 					if(has_command('X'))
-						t[0]=search_string('X');
+						t[0]=search_string('X') * scale_to_inches;
 					else
 						t[0]=cu[0];
 
 					if(has_command('Y'))
-						t[1]=search_string('Y');
+						t[1]=search_string('Y') * scale_to_inches;
 					else
 						t[1]=cu[1];
+
+					if(has_command('Z'))
+						t[2]=search_string('Z') * scale_to_inches;
+					else
+						t[2]=cu[2];
 				}
 				else // Incremental mode
 				{
-					t[0]=search_string('X')+cu[0];
-					t[1]=search_string('Y')+cu[1];
+					t[0]=search_string('X') * scale_to_inches + cu[0];
+					t[1]=search_string('Y') * scale_to_inches + cu[1];
+					t[2]=search_string('Z') * scale_to_inches + cu[2];
 				}
 
+				// Have we moved down or up? Zero is the threshold: 
+				// below zero is "cutter down".
+				if ((t[2] >= 0) && (cu[2] < 0))
+				{
+					HeadUp();
+				}
+				else if ((t[2] < 0) && (cu[2] >= 0))
+				{
+					HeadDown();
+				}
+				cu[2] = t[2];
+
 				if(has_command('F'))
-					feedrate=search_string('F'); // Search for feedrate OP
+					feedrate=search_string('F') * scale_to_inches; // Search for feedrate OP
 				break;
 		}
 
@@ -269,8 +472,8 @@ void process_string(void)
 			case 2:
 			case 3:
 				// Get arc X/Y center (I/J)
-				c[0]=search_string('I')+cu[0];
-				c[1]=search_string('J')+cu[1];
+				c[0]=search_string('I') * scale_to_inches + cu[0];
+				c[1]=search_string('J') * scale_to_inches + cu[1];
 
 				// Calculate the cross product
 				a[0]=(cu[0]-c[0]);
@@ -315,15 +518,18 @@ void process_string(void)
 
 			// Dwell in seconds
 			case 4:
-				DelayMS((int)(search_string('P')*1000.0f));
+				if (DebugLevel == DEBUG_NONE)
+					DelayMS((int)(search_string('P')*1000.0f));
 				break;
 
-			// Set inches units (doesn't do anything)
+			// Set inches units
 			case 20:
+				scale_to_inches = 1;
 				break;
 
-			// Set MM units (not supported ATM)
+			// Set MM units
 			case 21:
+				scale_to_inches = MM_TO_INCHES;
 				break;
 
 			// Go home
@@ -357,12 +563,12 @@ void process_string(void)
 
 			// Error
 			default:
-				CDC_SendString((CDC_TComData *)"huh? G\r\n");
+				RESULT("huh? G");
 				break;
 		}
 
 		// Done
-		CDC_SendString((CDC_TComData *)"ok\r\n");
+		RESULT("ok");
 		return;
 	}
 
@@ -374,35 +580,120 @@ void process_string(void)
 		{
 			// Program end
 			case 2:
-				GPIOC_PCOR|=0x0020;
+			case 30:
+				EndJob();
+				break;
+
+			// Spindle on and off - ignore them.
+			case 3:
+			case 5:
 				break;
 
 			// Head down
 			case 7:
-				GPIOC_PSOR|=0x0020;
-				DelayMS(300);  // Delay, limits pen/knife slap/skipping
+				HeadDown();
 				break;
 
 			// Head up
 			case 8:
-				GPIOC_PCOR|=0x0020;
-				DelayMS(300); // Delay, limits pen/knife slap/skipping
+				HeadUp();
+				break;
+
+			// Load the paper
+			case 39:
+				LoadState = LOAD_UNLOADED;
+				LoadYAxis();
+				DelayMS(2000);
+				LoadYAxis();
+				break;
+
+			// Eject the paper.
+			case 40:
+				LoadState = LOAD_LOADED;
+				LoadYAxis();
+				break;
+
+			// Debug. 
+			case 111:
+				if(has_command('S'))
+				{
+					DebugLevel = search_string('S');
+					if (DebugLevel >= DEBUG_INVALID)
+					{
+					DebugLevel = DEBUG_NONE;
+					}
+				}
+				else
+				{
+					DebugLevel = DEBUG_NONE;
+				}
+				switch (DebugLevel)
+				{
+					case DEBUG_NONE:
+						INFO("Job mode: CUT");
+						break;
+					case DEBUG_NOCUT:
+						INFO("Job mode: TRACE (no cut)");
+						break;
+					case DEBUG_NOMOVE:
+						INFO("Job mode: PARSE (no moves, print bounds after M2 command)");
+						break;
+					case DEBUG_BBOX_ON_M2:
+						INFO("Job mode: BBOX (show bounds after M2 command)");
+						break;
+					default:
+						break;
+				}
+				if (DebugLevel != DEBUG_NONE)
+				{
+					HeadUp();
+					bboxstart = 1;
+				}
+				if ((DebugLevel == DEBUG_NOMOVE) || (DebugLevel == DEBUG_BBOX_ON_M2))
+				{
+					enum _DL old = DebugLevel;
+					DebugLevel = DEBUG_NONE;
+					set_target(0.0f, 0.0f);
+					dda_move(calculate_feedrate_delay(100.0f));
+					DebugLevel = old;
+				}
+				break;
+
+			// Emergency stop / Enter bootloader
+			case 112:
+				EnterBootLoader();
+				break;
+
+			// Help
+			case 115:
+				INFO("-- TeensyCNC " __DATE__ " " __TIME__ " --");
+				INFO("Available macros:");
+				INFO("");
+				for (int i=0; macros[i].macro != NULL; i++)
+				{
+					char buffer[90];
+					snprintf(buffer, sizeof(buffer), "*   %-10s - %s\r\n",
+					macros[i].macro, macros[i].help);
+					cdc_print(buffer);
+				}
+				INFO("");
+				INFO("N.B. macros are lower case to avoid clashing with gcode");
 				break;
 
 			// Error
 			default:
-				CDC_SendString((CDC_TComData *)"huh? M\r\n");
+				RESULT("huh? M");
 				break;
 		}		
 
 		// Done
-		CDC_SendString((CDC_TComData *)"ok\r\n");
+		RESULT("ok");
 
 		return;
 	}
 
 	// Error, didn't find anything
-	CDC_SendString((CDC_TComData *)"huh?\r\n");
+	RESULT("huh?");
 }
 
 // Simple hard-stop axis homing function.
@@ -410,6 +701,9 @@ void process_string(void)
 void HomeXAxis(void)
 {
 	int32_t prevcount=0, prevtime=0;
+
+	// Make sure the head is up.
+	HeadUp();
 
 	// Disable motor drive PID loop
 	MotorDisable();
@@ -463,32 +757,95 @@ void HomeXAxis(void)
 	// We're home!
 }
 
-uint8_t Loaded=0;
-
 void LoadYAxis(void)
 {
-	if(!Loaded)
+	HomeXAxis();
+	switch (LoadState)
 	{
-		// Load it in, sets home to upper left corner
-		set_position(0.0f, 0.0f);
-		set_target(0.0f, -1.875f);
-		dda_move(calculate_feedrate_delay(250.0f));
-		set_position(0.0f, 0.0f);
-		Loaded=1;
+		case LOAD_UNLOADED:
+			// Just load it in a little bit to allow alignment.
+			INFO("Short loading");
+			set_position(0.0f, 0.0f);
+			set_target(0.0f, -1.0f);
+			dda_move(calculate_feedrate_delay(50.0f));
+			set_position(0.0f, 0.0f);
+			LoadState = LOAD_GRABBED;
+			break;
+		case LOAD_GRABBED:
+			// Align it with the bottom left of the paper.
+			INFO("Full loading");
+			set_position(0.0f, 0.0f);
+			set_target(0.0f, -12.875f);
+			dda_move(calculate_feedrate_delay(250.0f));
+			set_position(0.0f, 0.0f);
+			LoadState = LOAD_LOADED;
+			break;
+		case LOAD_LOADED:
+			// Load it out, run out enough to eject it no matter where.
+			INFO("Unloading");
+			set_position(0.0f, 0.0f);
+			set_target(0.0f, 14.0f);
+			dda_move(calculate_feedrate_delay(250.0f));
+			set_position(0.0f, 0.0f);
+			LoadState = LOAD_UNLOADED;
+			break;
+		default:
+			LoadState = LOAD_UNLOADED;
+			break;
 	}
-	else
+	INFO("Done");
+}
+
+void EndJob(void)
+{
+	enum _DL olddebug = DebugLevel;
+	DebugLevel = DEBUG_NONE;
+
+	HeadUp();
+	if (!cancelling)
 	{
-		// Load it out, run out enough to eject it no matter where.
-		set_position(0.0f, 0.0f);
-		set_target(0.0f, -14.0f);
-		dda_move(calculate_feedrate_delay(250.0f));
-		set_position(0.0f, 0.0f);
-		Loaded=0;
+		if (olddebug == DEBUG_BBOX_ON_M2)
+		{
+			cu[0] = cu[1] = 0.0f;
+
+			set_target(bb[0], bb[1]);
+			dda_move(calculate_feedrate_delay(250.0f));
+			DelayMS(1000);
+			set_target(bb[2], bb[1]);
+			dda_move(calculate_feedrate_delay(100.0f));
+			set_target(bb[2], bb[3]);
+			dda_move(calculate_feedrate_delay(100.0f));
+			set_target(bb[0], bb[3]);
+			dda_move(calculate_feedrate_delay(100.0f));
+			set_target(bb[0], bb[1]);
+			dda_move(calculate_feedrate_delay(100.0f));
+			DelayMS(1000);
+
+			set_target(0.0f, 0.0f);
+			dda_move(calculate_feedrate_delay(250.0f));
+		}
+		if (olddebug != DEBUG_NONE)
+		{
+			// Floating point snprintf hangs, so let's work with integers.
+			// For mm measurements, that's fine. Less so for inches!
+			char buffer[90];
+			snprintf(buffer, sizeof(buffer), "* Bounding box was %d,%d %d,%d %s\r\n",
+				(int)(bb[0]/scale_to_inches + 0.5), 
+				(int)(bb[1]/scale_to_inches + 0.5),
+				(int)(bb[2]/scale_to_inches + 0.5), 
+				(int)(bb[3]/scale_to_inches + 0.5), 
+				(scale_to_inches == 1 ? "inches" : "mm"));
+			cdc_print(buffer);
+		}
 	}
+    SetJobDefaults();
+	HomeXAxis();
 }
 
 int main(void)
 {
+	uint32_t lastactive = 0;
+
 	// Onboard LED output pin (head up/down solenoid)
 	PORTC_PCR5=PORT_PCR_MUX(1);
 	GPIOC_PDDR|=0x0020;
@@ -514,10 +871,36 @@ int main(void)
 	// Home the X axis
 	HomeXAxis();
 
+    // Setup defaults
+    SetJobDefaults();
+
 	while(1)
 	{
-		if(!(GPIOD_PDIR&0x0002)&&!(GPIOD_PDIR&0x0002))
-			LoadYAxis();
+		uint32_t idle = (SysTick - lastactive) > 250000;
+
+		if (idle && cancelling)
+		{
+			cancelling = 0;
+		}
+
+		PollButton();
+		if(button_pressed)
+		{
+			INFO("Button was pressed");
+			button_pressed = 0;
+			if (idle)
+			{
+				LoadYAxis();
+			}
+			else
+			{
+				INFO("Cancelling");
+				cancelling = 1;
+				EndJob();
+				RESULT("cancelled");
+				lastactive = SysTick;
+			}
+		}
 
 		Incoming=CDC_GetCharsInRxBuf();
 
@@ -530,23 +913,44 @@ int main(void)
 				CDC_RecvChar(&tmp);
 
 				// Handle comments
-				if(tmp=='(')
+				if ((tmp == '(') || (tmp == '%') || (tmp == ';'))
 					comment=1;
 
 				if(!comment)
+				{
 					buffer[serial_count++]=(char)tmp;
-
-				if(tmp==')')
+				}
+				else if ((tmp == '\r') || (tmp == '\n'))
+				{
+					buffer[serial_count++]=(char)tmp;
+					comment = 0;
+				}
+				else if (tmp == ')')
+				{
 					comment=0;
+				}
 			}
+			if (cancelling) 
+			{
+				RESULT("cancelled");
+				for(int i=0;i<COMMAND_SIZE;i++)
+				buffer[i]=0;
+				serial_count = 0;
+			}
+			lastactive = SysTick;
 		}
 
 		// CR/LF ends lines and starts command processing
-		if((buffer[serial_count-1]=='\n')||(buffer[serial_count-1]=='\r'))
+		if(!cancelling && ((buffer[serial_count-1]=='\n')||(buffer[serial_count-1]=='\r')))
 		{
 			uint8_t i;
 
 			buffer[serial_count]=0;
+			while ((serial_count > 0) && (isspace(buffer[serial_count-1])))
+			{
+				buffer[--serial_count]=0;
+			}
+
 			process_string();
 
 			// After processing, clear the buffer
@@ -554,6 +958,7 @@ int main(void)
 				buffer[i]=0;
 
 			serial_count=0;
+			lastactive = SysTick;
 		}
 	}
 }

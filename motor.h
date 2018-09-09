@@ -4,5 +4,6 @@
 void MotorEnable(void);
 void MotorDisable(void);
 void Motor_Init(void);
+void MotorCtrlX(int32_t);
 
 #endif

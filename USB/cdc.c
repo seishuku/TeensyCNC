@@ -50,7 +50,7 @@ static volatile boolean transactionOngoing=FALSE;
 			::[input] "m" (cpuSR) : "r0");		\
 	} while(0)
 
-#define BUF_SIZE					64
+#define BUF_SIZE					256 // Alun Jones - Increased from 64 to 256
 
 uint8_t Rx_buffer[BUF_SIZE];	/* ring buffer */
 uint8_t Rx_inIdx;				/* input index */

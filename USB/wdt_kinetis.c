@@ -32,7 +32,7 @@
  *****************************************************************************/
  
 #include "types.h"      	/* User Defined Data Types */
-#include "mk20d7.h" 	/* include peripheral declarations */
+#include "MK20D7.h" 	/* include peripheral declarations */
 #include "wdt_kinetis.h"       /* own header with public declarations */
 
 /*****************************************************************************/

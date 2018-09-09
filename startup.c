@@ -3,7 +3,7 @@
 //
 // ARM startup and basic hardware Initialization
 
-#include "mk20d7.h"
+#include "MK20D7.h"
 #include <string.h>
 #include <stdlib.h>
 

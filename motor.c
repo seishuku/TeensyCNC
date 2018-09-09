@@ -3,7 +3,9 @@
 //
 // Motor PID control and encoder handling
 
-#include "mk20d7.h"
+// Alun Jones - Interrupt disable/enable while enabling/disabling motor, was causing MCU crashing.
+
+#include "MK20D7.h"
 #include <stdlib.h>
 #include "pwm.h"
 
@@ -185,16 +187,21 @@ void MotorEnable(void)
 	lastError[0]=0;
 	lastError[1]=0;
 
+	__asm("cpsid i");
 	FTM1_SC=(FTM1_SC&(~(FTM_SC_CLKS_MASK&FTM_SC_TOF_MASK)))|(0x08);
 	FTM1_SC=FTM_SC_TOIE_MASK|FTM_SC_CLKS(0x02)|FTM_SC_PS(0x00);
+	__asm("cpsie i");
 }
 
 // Removes clock source from PID interrupt timer, disabling it.
 // Also sets axis motors to 0 PWM.
 void MotorDisable(void)
 {
+	__asm("cpsid i");
 	FTM1_SC=(FTM1_SC&(~(FTM_SC_CLKS_MASK&FTM_SC_TOF_MASK)))|(0x00);
 	FTM1_SC=FTM_SC_TOIE_MASK|FTM_SC_CLKS(0x00)|FTM_SC_PS(0x00);
+	__asm("cpsie i");
+
 	MotorCtrlX(0);
 	MotorCtrlY(0);
 }

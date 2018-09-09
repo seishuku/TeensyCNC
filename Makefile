@@ -1,3 +1,6 @@
+# Alun Jones - Changed to using teensy_loader_cli for loading code
+# Matt Williams - Set c99 standard as well.
+
 PROJECT=main
 
 # main program + cpu startup code
@@ -17,7 +20,7 @@ OBJS += USB/usb_driver.o
 OBJS += USB/usb_framework.o
 OBJS += USB/wdt_kinetis.o
 
-CFLAGS = -Wall -fno-common -O3 -mthumb -mcpu=cortex-m4 -mfloat-abi=soft -specs=nosys.specs -I./USB -I.
+CFLAGS = -std=c99 -Wall -fno-common -O3 -mthumb -mcpu=cortex-m4 -mfloat-abi=soft -specs=nosys.specs -I./USB -I.
 ASFLAGS = -mcpu=cortex-m4
 LDFLAGS  = -lm -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -specs=nosys.specs -nostartfiles -TMK20D7.ld
 
@@ -29,7 +32,7 @@ OBJCOPY = arm-none-eabi-objcopy
 all:: $(PROJECT).hex
 
 run: $(PROJECT).hex
-	teensy_post_compile -file=$(PROJECT) -path=. -tools=\utils -board=TEENSY31 -reboot
+	teensy_loader_cli -mmcu=mk20dx256  -v $(PROJECT).hex
 
 $(PROJECT).hex: $(PROJECT).elf
 	$(STRIP) $(PROJECT).elf
