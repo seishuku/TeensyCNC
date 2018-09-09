@@ -8,7 +8,7 @@ Besides that, it's also a fun project! :D
 
 Connection information:
 
-Original PIC24FJ64GB002 (Master PIC - handles USB interface, command queing/excution, motion control):
+<b>Original PIC24FJ64GB002 (Master PIC - handles USB interface, command queing/excution, motion control):</b>
 
 Description | Pin | Pin | Description
 ----------- | --- | --- | -----------
@@ -27,7 +27,7 @@ Load button | 12 | 17 | ---
 --- | 13 | 16 | ---
 --- | 14 | 15 | ---
 
-Original PIC16LF1823 (Slave PIC -  handles counting quadratic motor encoder pulses, passes the data to master PIC via SPI):
+<b>Original PIC16LF1823 (Slave PIC -  handles counting quadratic motor encoder pulses, passes the data to master PIC via SPI):</b>
 
 Description | Pin | Pin | Description
 ----------- | --- | --- | -----------
@@ -39,7 +39,7 @@ encoderXa | 3 | 12 | ---
 --- | 6 | 9 | ---
 LED enable | 7 | 8 | encoderYa
 
-Connections to the Teensy:
+<b>Connections to the Teensy:</b>
 
 Connection at Cricut | Connection at Teensy
 -------------------- | --------------------
@@ -56,8 +56,8 @@ Head solenoid | Teensy pin 13 (PTC5, Output)
 LED Enable | Teensy +3.3v
 Ground | Teensy Ground (may be grounded via USB B connector)
 
-Note:
-Power button is currently unused and unconnected.
+<b>Note:</b>
+Power button is currently unused and unconnected. Future use?
 
 For USB connection, I used a chopped off USB MicroB cable and soldered the wires to the pins on the bottom of the board.
 
