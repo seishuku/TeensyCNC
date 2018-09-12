@@ -9,6 +9,8 @@
 #include <stddef.h>
 #include <ctype.h>
 
+void DelayMS(uint32_t ms);
+
 #define ERR_OK						0x00
 #define ERR_FAILED					0x01
 #define ERR_TXFULL					0x02

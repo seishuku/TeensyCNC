@@ -261,8 +261,6 @@ uint_8 USB_DESC_CONST USB_STR_1[USB_STR_1_SIZE+USB_STR_DESC_SIZE]
                                'C',0,
                                '.',0
 #else
-
-
                               'F',0,
                               'R',0,
                               'E',0,
@@ -276,21 +274,7 @@ uint_8 USB_DESC_CONST USB_STR_1[USB_STR_1_SIZE+USB_STR_DESC_SIZE]
                               'I',0,
                               'N',0,
                               'C',0,
-                              '.',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0,
-                              '\x20',0
+                              '.',0
 #endif
                           };
 
