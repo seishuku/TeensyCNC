@@ -28,6 +28,7 @@ Load button | 12 | 17 | ---
 --- | 14 | 15 | ---
 
 <b>Original PIC16LF1823 (Slave PIC -  handles counting quadratic motor encoder pulses, passes the data to master PIC via SPI):</b>
+Note: this is a 14 pin chip, and the board has a 28 pin location.
 
 Description | Pin | Pin | Description
 ----------- | --- | --- | -----------
