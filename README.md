@@ -18,8 +18,8 @@ Description | Pin | Pin | Description
 --- | 4 | 25 | motorXb
 --- | 5 | 24 | motorXa
 motorYa |  6 | 23 | ---
---- | 7 | 22 | ---
---- | 8 | 21 | ---
+--- | 7 | 22 | USB Data -
+Ground | 8 | 21 | USB Data +
 --- | 9 | 20 | ---
 Power button | 10 | 19 | ---
 Head solenoid | 11 | 18 | ---
@@ -35,10 +35,10 @@ Description | Pin | Pin | Description
 --- | 1 | 14 | Ground
 encoderXb | 2 | 13 | ---
 encoderXa | 3 | 12 | ---
---- | 4 | 11 | encoderYb
+--- | 4 | 11 | encoderYa
 --- | 5 | 10 | ---
 --- | 6 | 9 | ---
-LED enable | 7 | 8 | encoderYa
+LED enable | 7 | 8 | encoderYb
 
 <b>Connections to the Teensy:</b>
 
