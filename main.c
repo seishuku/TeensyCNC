@@ -7,9 +7,9 @@
 //
 // This all can be improved drastically, but it's a well working CNC example. G-code interpreter needs syntax checking, badly.
 
-// Modifications made by Alun Jones (macros, pen up/down on Z, bootloader entry, job tracing, help, etc!)
+// Sep 9, 2018 - Modifications made by Alun Jones (macros, pen up/down on Z, bootloader entry, job tracing, help, etc!)
 
-#include "MK20D7.h"
+#include "MK20D10.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -17,7 +17,8 @@
 #include <ctype.h>
 #include "pwm.h"
 #include "motor.h"
-#include "cdc.h"
+#include "usb_dev.h"
+#include "usb_serial.h"
 
 struct {
 	char *macro;
@@ -36,7 +37,7 @@ struct {
 };
 
 // External system tick counter (driven by ARM systick interrupt)
-extern volatile uint32_t SysTick;
+extern volatile uint32_t Tick;
 
 // Axis' target steps (absolute) and encoder counts
 extern volatile int32_t Target[2];
@@ -131,11 +132,8 @@ void PollButton(void);
 // Some helpful printing functions.
 void cdc_print(char *s)
 {
-	if (CDC1_ApplicationStarted())
-	{
-		CDC_SendString((CDC_TComData *)s);
-		(void)CDC_GetCharsInRxBuf();
-	}
+	usb_serial_write(s, strlen(s));
+	usb_serial_flush_output();
 }
 
 int8_t bboxstart=0, head_is_down=0;
@@ -144,17 +142,17 @@ float bb[4]={ 0, 0, 0, 0};
 // Simple delay using ARM systick, set up for microseconds (see startup.c)
 void DelayUS(uint32_t us)
 {
-	uint32_t _time=SysTick;
+	uint32_t _time=Tick;
 
-	while((SysTick-_time)<us);
+	while((Tick-_time)<us);
 }
 
 // Same delay, only scaled 1000x for milliseconds
 void DelayMS(uint32_t ms)
 {
-	uint32_t _time=SysTick;
+	uint32_t _time=Tick;
 
-	while((SysTick-_time)<(ms*1000))
+	while((Tick-_time)<(ms*1000))
 		PollButton();
 }
 
@@ -188,7 +186,7 @@ void HeadUp(void)
 
 	if (DebugLevel==DEBUG_NONE)
 	{
-		GPIOC_PCOR|=0x0020;
+		GPIOC->PCOR|=0x0020;
 		DelayMS(300); // Delay, limits pen/knife slap/skipping
 	}
 }
@@ -200,7 +198,7 @@ void HeadDown(void)
 
 	if (DebugLevel==DEBUG_NONE)
 	{
-		GPIOC_PSOR|=0x0020;
+		GPIOC->PSOR|=0x0020;
 		DelayMS(300);  // Delay, limits pen/knife slap/skipping
 	}
 }
@@ -212,23 +210,23 @@ void PollButton(void)
 	static uint8_t flagged=0;
 	static uint8_t bootflagged=0;
 
-	uint8_t state=!(GPIOD_PDIR&0x0002);
+	uint8_t state=!(GPIOD->PDIR&0x0002);
 
 	if (state != oldstate)
 	{
-		last_transition=SysTick;
+		last_transition=Tick;
 		flagged=0;
 	}
 
 	// If the button is pressed and we've not yet flagged it and 
 	// the state has been stable for 5ms then flag it.
-	if((state==1)&&!flagged&&(SysTick-last_transition>5000))
+	if((state==1)&&!flagged&&(Tick-last_transition>5000))
 	{
 		button_pressed=1;
 		flagged=1;
 	}
 
-	if((state==1)&&!bootflagged&&(SysTick-last_transition>1500000))
+	if((state==1)&&!bootflagged&&(Tick-last_transition>1500000))
 	{
 		// If the button is held, enter the bootloader. This
 		// acts as an emergency stop on the motors and an emergency
@@ -755,7 +753,7 @@ void HomeXAxis(void)
 	// Store current X encoder position
 	prevcount=EncoderPos[0];
 	// Store current tick
-	prevtime=SysTick;
+	prevtime=Tick;
 
 	// Drive the X motor home with enough torque to move it at a good pace, but not so much that it can't be stopped by the hard-stop.
 	MotorCtrlX(-40000);
@@ -766,7 +764,7 @@ void HomeXAxis(void)
 	while(1)
 	{
 		// Velocity of motion over 1mS (1000uS)
-		if((SysTick-prevtime)>1000)
+		if((Tick-prevtime)>1000)
 		{
 			// Calculate the delta position from the last mS
 			int32_t dC=abs(EncoderPos[0]-prevcount);
@@ -777,7 +775,7 @@ void HomeXAxis(void)
 
 			// Otherwise, update the previous position/time and continue on
 			prevcount=EncoderPos[0];
-			prevtime=SysTick;
+			prevtime=Tick;
 		}
 	}
 
@@ -905,14 +903,14 @@ int main(void)
 
 	// Head up/down solenoid
 	// Teensy pin 13 (PTC5 output, also Teensy's onboard LED)
-	PORTC_PCR5=PORT_PCR_MUX(1);
-	GPIOC_PDDR|=0x0020;
-	GPIOC_PCOR|=0x0020;
+	PORTC->PCR[5]=PORT_PCR_MUX(1);
+	GPIOC->PDDR|=0x0020;
+	GPIOC->PCOR|=0x0020;
 
 	// Load button
 	// Teensy pin 14 (PTD1 input)
-	PORTD_PCR1=((PORTD_PCR1&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x06)))|(PORT_PCR_MUX(0x01)));
-	GPIOD_PDDR&=~0x0002;
+	PORTD->PCR[1]=((PORTD->PCR[1]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x06)))|(PORT_PCR_MUX(0x01)));
+	GPIOD->PDDR&=~0x0002;
 
 	// Initialize X/Y motor PWM channels, set 0 duty (FFFFh = 0%, 0 = 100%)
 	PWM_Init();
@@ -925,7 +923,7 @@ int main(void)
 	Motor_Init();
 
 	// Initialize USB CDC virtual serial device
-	CDC_Init();
+	usb_init();
 
 	// Home the X axis
 	HomeXAxis();
@@ -935,7 +933,7 @@ int main(void)
 
 	while(1)
 	{
-		uint32_t idle=(SysTick-lastactive)>250000;
+		uint32_t idle=(Tick-lastactive)>250000;
 
 		if (idle&&(cancelling!=NO_CANCEL))
 			cancelling=NO_CANCEL;
@@ -955,19 +953,17 @@ int main(void)
 				cancelling=BUTTON_CANCEL;
 				EndJob();
 				RESULT("cancelled");
-				lastactive=SysTick;
+				lastactive=Tick;
 			}
 		}
 
-		Incoming=CDC_GetCharsInRxBuf();
+		Incoming=usb_serial_available();
 
 		if(Incoming>0)
 		{
 			while(Incoming--)
 			{
-				CDC_TComData tmp;
-
-				CDC_RecvChar(&tmp);
+				uint8_t tmp=usb_serial_getchar();
 
 				// Handle comments
 				if ((tmp == '(') || (tmp == '%') || (tmp == ';'))
@@ -993,7 +989,7 @@ int main(void)
 				serial_count=0;
 			}
 
-			lastactive=SysTick;
+			lastactive=Tick;
 		}
 
 		// CR/LF ends lines and starts command processing
@@ -1011,7 +1007,7 @@ int main(void)
 				buffer[i]=0;
 
 			serial_count=0;
-			lastactive=SysTick;
+			lastactive=Tick;
 		}
 	}
 }

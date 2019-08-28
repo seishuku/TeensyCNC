@@ -1,0 +1,19 @@
+X motor A = PTD6 (PWM)
+X motor B = PTD5 (PWM)
+
+Y motor A = PTC2 (PWM)
+Y motor B = PTC1 (PWM)
+
+Y encoder A = PTB1 (Interrupt)
+Y encoder B = PTB0 (Interrupt)
+
+X encoder A = PTC6 (Interrupt)
+X encoder B = PTC7 (Interrupt)
+
+Load button = PTD1 (Interrupt)
+
+LED Enable = +3.3v
+
+Head solenoid = PTC5 (Output)
+
+Ground = Ground

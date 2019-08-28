@@ -10,19 +10,11 @@ OBJS = $(PROJECT).o startup.o
 OBJS += motor.o pwm.o
 
 # USB CDC support
-OBJS += USB/cdc.o
-OBJS += USB/usb_cdc.o
-OBJS += USB/usb_cdc_pstn.o
-OBJS += USB/usb_class.o
-OBJS += USB/usb_dci_kinetis.o
-OBJS += USB/usb_descriptor.o
-OBJS += USB/usb_driver.o
-OBJS += USB/usb_framework.o
-OBJS += USB/wdt_kinetis.o
+OBJS += USB/usb_desc.o USB/usb_dev.o USB/usb_mem.o USB/usb_serial.o
 
 CFLAGS = -std=c99 -Wall -fno-common -O3 -mthumb -mcpu=cortex-m4 -mfloat-abi=soft -specs=nosys.specs -I./USB -I.
 ASFLAGS = -mcpu=cortex-m4
-LDFLAGS  = -lm -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -specs=nosys.specs -nostartfiles -TMK20D7.ld
+LDFLAGS  = -lm -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -specs=nosys.specs -nostartfiles -TMK20D10_flash.ld
 
 CC = arm-none-eabi-gcc
 AS = arm-none-eabi-as

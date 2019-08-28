@@ -3,19 +3,19 @@ ENTRY(__thumb_startup)
 
 /* Highest address of the user mode stack */
 _estack = 0x20000000;    /* end of m_data */
-__SP_INIT = _estack;
+__stack = _estack;
 
 /* Generate a link error if heap and stack don't fit into RAM */
-__heap_size = 0x00;                    /* required amount of heap  */
-__stack_size = 0x0400;                 /* required amount of stack */
+__heap_size = 0x0000;                  /* required amount of heap  */
+__stack_size = 0x2000;                 /* required amount of stack */
 
 
 MEMORY {
-  m_interrupts (RX) : ORIGIN = 0x00000000, LENGTH = 0x000001BC
-  m_text      (RX) : ORIGIN = 0x00000410, LENGTH = 0x0003FBF0
-  m_data      (RW) : ORIGIN = 0x1FFF8000, LENGTH = 0x00008000
-  m_data_20000000 (RW) : ORIGIN = 0x20000000, LENGTH = 0x00008000
-  m_cfmprotrom  (RX) : ORIGIN = 0x00000400, LENGTH = 0x00000010
+  m_interrupts		(RX) : ORIGIN = 0x00000000, LENGTH = 0x000001BC
+  m_text			(RX) : ORIGIN = 0x00000410, LENGTH = 0x0003FBF0
+  m_data			(RW) : ORIGIN = 0x1FFF8000, LENGTH = 0x00008000
+  m_data_2			(RW) : ORIGIN = 0x20000000, LENGTH = 0x00008000
+  m_flash_config	(RX) : ORIGIN = 0x00000400, LENGTH = 0x00000010
 }
 
 /* Define output sections */
@@ -26,16 +26,16 @@ SECTIONS
   {
     __vector_table = .;
     . = ALIGN(4);
-    KEEP(*(.vectortable)) /* Startup code */
+    KEEP(*(.isr_vector)) /* Startup code */
     . = ALIGN(4);
   } > m_interrupts
 
-  .cfmprotect :
+  .flash_config :
   {
     . = ALIGN(4);
-	KEEP(*(.cfmconfig))	/* Flash Configuration Field (FCF) */
-	. = ALIGN(4);
-  } > m_cfmprotrom
+    KEEP(*(.FlashConfig))    /* Flash Configuration Field (FCF) */
+    . = ALIGN(4);
+  } > m_flash_config
 
   /* The program code and other data goes into INTERNAL_FLASH */
   .text :
@@ -135,16 +135,16 @@ SECTIONS
 
   ___data_size = _edata - _sdata;
 
-  ___m_data_20000000_ROMStart = ___ROM_AT + SIZEOF(.data);
-  .m_data_20000000 : AT(___m_data_20000000_ROMStart)
+  ___m_data_2_ROMStart = ___ROM_AT + SIZEOF(.data);
+  .m_data_2 : AT(___m_data_2_ROMStart)
   {
      . = ALIGN(4);
-     ___m_data_20000000_RAMStart = .;
-     *(.m_data_20000000) /* This is an User defined section */
-     ___m_data_20000000_RAMEnd = .;
+     ___m_data_2_RAMStart = .;
+     *(.m_data_2) /* This is an User defined section */
+     ___m_data_2_RAMEnd = .;
      . = ALIGN(4);
-  } > m_data_20000000
-  ___m_data_20000000_ROMSize = ___m_data_20000000_RAMEnd - ___m_data_20000000_RAMStart;
+  } > m_data_2
+  ___m_data_2_ROMSize = ___m_data_2_RAMEnd - ___m_data_2_RAMStart;
 
   /* Uninitialized data section */
   . = ALIGN(4);
@@ -163,16 +163,16 @@ SECTIONS
  	  PROVIDE ( __bss_end__ = __END_BSS );
   } > m_data
 
-  _romp_at = ___ROM_AT + SIZEOF(.data) +SIZEOF(.m_data_20000000);
+  _romp_at = ___ROM_AT + SIZEOF(.data) +SIZEOF(.m_data_2);
   .romp : AT(_romp_at)
   {
     __S_romp = _romp_at;
     LONG(___ROM_AT);
     LONG(_sdata);
     LONG(___data_size);
-    LONG(___m_data_20000000_ROMStart);
-    LONG(___m_data_20000000_RAMStart);
-    LONG(___m_data_20000000_ROMSize);
+    LONG(___m_data_2_ROMStart);
+    LONG(___m_data_2_RAMStart);
+    LONG(___m_data_2_ROMSize);
     LONG(0);
     LONG(0);
     LONG(0);
