@@ -1,4 +1,4 @@
-Some pictures from inside a Cricut Expression Air 2.
+Some pictures from inside a Cricut Explore Air 2.
 
 I didn't want to completely disassemble it, so the circuit board view isn't very good...
 
