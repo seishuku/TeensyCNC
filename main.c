@@ -9,7 +9,7 @@
 
 // Sep 9, 2018 - Modifications made by Alun Jones (macros, pen up/down on Z, bootloader entry, job tracing, help, etc!)
 
-#include "MK20D10.h"
+#include "MIMXRT1062.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -17,8 +17,22 @@
 #include <ctype.h>
 #include "pwm.h"
 #include "motor.h"
-#include "usb_dev.h"
-#include "usb_serial.h"
+//#include "usb_dev.h"
+//#include "usb_serial.h"
+
+/*
+Teensy 4.0 pin to GPIO group/bit cheat sheet:
+PIN0 = GPIO6/3		PIN1 = GPIO6/2		PIN2 = GPIO9/4		PIN3 = GPIO9/5
+PIN4 = GPIO9/6		PIN5 = GPIO9/8		PIN6 = GPIO7/10		PIN7 = GPIO7/17
+PIN8 = GPIO7/16		PIN9 = GPIO7/11		PIN10 = GPIO7/0		PIN11 = GPIO7/2
+PIN12 = GPIO7/1		PIN13 = GPIO7/3		PIN14 = GPIO6/18	PIN15 = GPIO6/19
+PIN16 = GPIO6/23	PIN17 = GPIO6/22	PIN18 = GPIO6/17	PIN19 = GPIO6/16
+PIN20 = GPIO6/26	PIN21 = GPIO6/27	PIN22 = GPIO6/24	PIN23 = GPIO6/25
+PIN24 = GPIO6/12	PIN25 = GPIO6/13	PIN26 = GPIO6/30	PIN27 = GPIO6/31
+PIN28 = GPIO8/18	PIN29 = GPIO9/31	PIN30 = GPIO8/23	PIN31 = GPIO8/22
+PIN32 = GPIO7/12	PIN33 = GPIO9/7		PIN34 = GPIO8/15	PIN35 = GPIO8/14
+PIN36 = GPIO8/13	PIN37 = GPIO8/12	PIN38 = GPIO8/17	PIN39 = GPIO8/16
+*/
 
 struct {
 	char *macro;
@@ -186,7 +200,7 @@ void HeadUp(void)
 
 	if (DebugLevel==DEBUG_NONE)
 	{
-		GPIOC->PCOR|=0x0020;
+		GPIO7->DR_CLEAR|=0x8; // GPIO7, bit 3 (pin 13)
 		DelayMS(300); // Delay, limits pen/knife slap/skipping
 	}
 }
@@ -198,7 +212,7 @@ void HeadDown(void)
 
 	if (DebugLevel==DEBUG_NONE)
 	{
-		GPIOC->PSOR|=0x0020;
+		GPIO7->DR_SET|=0x8; // GPIO7, bit 3 (pin 13)
 		DelayMS(300);  // Delay, limits pen/knife slap/skipping
 	}
 }
@@ -210,7 +224,8 @@ void PollButton(void)
 	static uint8_t flagged=0;
 	static uint8_t bootflagged=0;
 
-	uint8_t state=!(GPIOD->PDIR&0x0002);
+	// GPIO6, bit 19 (pin 14)
+	uint8_t state=!(GPIO6->DR&0x40000);
 
 	if (state != oldstate)
 	{
@@ -902,15 +917,15 @@ int main(void)
 	uint32_t lastactive = 0;
 
 	// Head up/down solenoid
-	// Teensy pin 13 (PTC5 output, also Teensy's onboard LED)
-	PORTC->PCR[5]=PORT_PCR_MUX(1);
-	GPIOC->PDDR|=0x0020;
-	GPIOC->PCOR|=0x0020;
+	// Teensy pin 13 (GPIO7/3 output, also Teensy's onboard LED)
+	//PORTC->PCR[5]=PORT_PCR_MUX(1); <--Need to figure out iMX GPIO mux settings
+	GPIO7->GDIR|=0x00000008;
+	GPIO7->DR_CLEAR|=0x00000008;
 
 	// Load button
-	// Teensy pin 14 (PTD1 input)
-	PORTD->PCR[1]=((PORTD->PCR[1]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x06)))|(PORT_PCR_MUX(0x01)));
-	GPIOD->PDDR&=~0x0002;
+	// Teensy pin 14 (GPIO6/18 input)
+	//PORTD->PCR[1]=((PORTD->PCR[1]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x06)))|(PORT_PCR_MUX(0x01))); <--Need to figure out iMX GPIO mux settings
+	GPIO6->GDIR&=~0x00040000;
 
 	// Initialize X/Y motor PWM channels, set 0 duty (FFFFh = 0%, 0 = 100%)
 	PWM_Init();

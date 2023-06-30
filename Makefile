@@ -4,17 +4,17 @@
 PROJECT=main
 
 # main program + cpu startup code
-OBJS = $(PROJECT).o startup.o
+OBJS = $(PROJECT).o startup_mimxrt1062.o system_MIMXRT1062.o
 
 # additional module support
 OBJS += motor.o pwm.o
 
 # USB CDC support
-OBJS += USB/usb_desc.o USB/usb_dev.o USB/usb_mem.o USB/usb_serial.o
+#OBJS += USB/usb_desc.o USB/usb_dev.o USB/usb_mem.o USB/usb_serial.o
 
-CFLAGS = -std=c99 -Wall -fno-common -O3 -mthumb -mcpu=cortex-m4 -mfloat-abi=soft -specs=nosys.specs -I./USB -I.
-ASFLAGS = -mcpu=cortex-m4
-LDFLAGS  = -lm -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -specs=nosys.specs -nostartfiles -TMK20D10_flash.ld
+CFLAGS = -std=c99 -Wall -fno-common -O3 -mthumb -mcpu=cortex-m7 -mfloat-abi=hard -specs=nosys.specs -I./USB -I./CMSIS -I.
+ASFLAGS = -mcpu=cortex-m7
+LDFLAGS  = -lm -mcpu=cortex-m7 -mthumb -mfloat-abi=hard -specs=nosys.specs -nostartfiles -Timxrt1062.ld
 
 CC = arm-none-eabi-gcc
 AS = arm-none-eabi-as
@@ -24,7 +24,7 @@ OBJCOPY = arm-none-eabi-objcopy
 all:: $(PROJECT).hex
 
 run: $(PROJECT).hex
-	teensy_loader_cli -mmcu=mk20dx256  -v $(PROJECT).hex
+	teensy_loader_cli -mmcu=imxrt1062 -v $(PROJECT).hex
 
 $(PROJECT).hex: $(PROJECT).elf
 	$(STRIP) $(PROJECT).elf
