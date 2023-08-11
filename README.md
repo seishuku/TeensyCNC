@@ -1,6 +1,4 @@
-<font size=5><b>This is an in progress port to a Teensy 4.0, currently trying to get some of the code done and get it to compile.
-
-I don't actually have any Teensy 4.x devices in hand yet, so I'm not sure how far I'll get.
+<font size=5><b>This is an in-progress port to a Teensy 4.0.
 
 NOTE: some pins will have to be changed, be sure to check Teensy wiring section at bottom!</b></font>
 
