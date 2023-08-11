@@ -1,6 +1,8 @@
 <font size=5><b>This is an in progress port to a Teensy 4.0, currently trying to get some of the code done and get it to compile.
 
-I don't actually have any Teensy 4.x devices in hand yet, so I'm not sure how far I'll get.</b></font>
+I don't actually have any Teensy 4.x devices in hand yet, so I'm not sure how far I'll get.
+
+NOTE: some pins will have to be changed, be sure to check Teensy wiring section at bottom!</b></font>
 
 TeensyCNC, CNC controller using a Teensy 4.0!
 
@@ -48,16 +50,16 @@ LED enable | 7 | 8 | encoderYb
 
 Connection at Cricut | Connection at Teensy
 -------------------- | --------------------
-motorXa | Teensy pin 21 (GPIO B1/11, PWM output)
-motorXb | Teensy pin 20 (GPIO B1/10, PWM output)
-motorYa | Teensy pin 23 (GPIO B1/9, PWM output)
-motorYb | Teensy pin 22 (GPIO B1/8, PWM output)
-encoderYa | Teensy pin 17 (GPIO B1/6, interrupt input)
-encoderYb | Teensy pin 16 (GPIO B1/7, interrupt input)
-encoderXa | Teensy pin 11 (GPIO B0/2, interrupt input)
-encoderXb | Teensy pin 12 (GPIO B0/1, interrupt input)
-Load button | Teensy pin 14 (GPIO B1/2, interrupt input)
-Head solenoid | Teensy pin 13 (GPIO B0/3, output)
+motorXa | Teensy pin 5 (H3, GPIO EMC 8, PWM output)
+motorXb | Teensy pin 4 (H5, GPIO EMC 6, PWM output)
+motorYa | Teensy pin 23 (M13, GPIO B1/9, PWM output)
+motorYb | Teensy pin 22 (H13, GPIO B1/8, PWM output)
+encoderYa | Teensy pin 17 (J12, GPIO B1/6, interrupt input)
+encoderYb | Teensy pin 16 (K10, GPIO B1/7, interrupt input)
+encoderXa | Teensy pin 11 (E8, GPIO B0/2, interrupt input)
+encoderXb | Teensy pin 12 (E7, GPIO B0/1, interrupt input)
+Load button | Teensy pin 14 (L11, GPIO B1/2, interrupt input)
+Head solenoid | Teensy pin 13 (D8, GPIO B0/3, output)
 LED Enable | Teensy +3.3v
 Ground | Teensy Ground (may be grounded via USB B connector)
 

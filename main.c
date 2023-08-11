@@ -1,13 +1,14 @@
 // TeensyCNC
-// Copyright 2016 Matt Williams
+// Copyright 2023 Matt Williams
 //
-// g-code interpreter code is moostly based on RepRap and Marginally Clever's "How to make a Arduino CNC", though I've made a lot of changes.
+// g-code interpreter code is mostly based on RepRap and Marginally Clever's "How to make a Arduino CNC", though I've made a lot of changes.
 // USB CDC virtual serial is from Freescale's Processor Expert (I'm not crazy enough to write that from scratch!)
 // Everything else is taken from some of my other projects or from scratch.
 //
 // This all can be improved drastically, but it's a well working CNC example. G-code interpreter needs syntax checking, badly.
 
 // Sep 9, 2018 - Modifications made by Alun Jones (macros, pen up/down on Z, bootloader entry, job tracing, help, etc!)
+// ??? ??, 2023 - Ported to Teensy 4
 
 #include "MIMXRT1062.h"
 #include <stdlib.h>
@@ -15,25 +16,25 @@
 #include <stdio.h>
 #include <math.h>
 #include <ctype.h>
+#include "syscalls.h"
 #include "pwm.h"
 #include "motor.h"
 //#include "usb_dev.h"
 //#include "usb_serial.h"
 
-/*
-Teensy 4.0 pin to GPIO group/bit cheat sheet:
-PIN0 = GPIO6/3		PIN1 = GPIO6/2		PIN2 = GPIO9/4		PIN3 = GPIO9/5
-PIN4 = GPIO9/6		PIN5 = GPIO9/8		PIN6 = GPIO7/10		PIN7 = GPIO7/17
-PIN8 = GPIO7/16		PIN9 = GPIO7/11		PIN10 = GPIO7/0		PIN11 = GPIO7/2
-PIN12 = GPIO7/1		PIN13 = GPIO7/3		PIN14 = GPIO6/18	PIN15 = GPIO6/19
-PIN16 = GPIO6/23	PIN17 = GPIO6/22	PIN18 = GPIO6/17	PIN19 = GPIO6/16
-PIN20 = GPIO6/26	PIN21 = GPIO6/27	PIN22 = GPIO6/24	PIN23 = GPIO6/25
-PIN24 = GPIO6/12	PIN25 = GPIO6/13	PIN26 = GPIO6/30	PIN27 = GPIO6/31
-PIN28 = GPIO8/18	PIN29 = GPIO9/31	PIN30 = GPIO8/23	PIN31 = GPIO8/22
-PIN32 = GPIO7/12	PIN33 = GPIO9/7		PIN34 = GPIO8/15	PIN35 = GPIO8/14
-PIN36 = GPIO8/13	PIN37 = GPIO8/12	PIN38 = GPIO8/17	PIN39 = GPIO8/16
-*/
+//Teensy 4.0 pin to MCU pin routing/GPIO peripheral/signal group cheat sheet:
+// PIN0 = GPIO_AD_B0_03/GPIO6_3		 PIN1 = GPIO_AD_B0_02/GPIO6_2	 PIN2 = GPIO_EMC_04/GPIO9_4		 PIN3 = GPIO_EMC_05/GPIO9_5
+// PIN4 = GPIO_EMC_06/GPIO9_6		 PIN5 = GPIO_EMC_08/GPIO9_8		 PIN6 = GPIO_B0_10/GPIO7_10		 PIN7 = GPIO_B1_01/GPIO7_17
+// PIN8 = GPIO_B1_00/GPIO7_16		 PIN9 = GPIO_B0_11/GPIO7_11		PIN10 = GPIO_B0_00/GPIO7_0		PIN11 = GPIO_B0_02/GPIO7_2
+//PIN12 = GPIO_B0_01/GPIO7_1		PIN13 = GPIO_B0_03/GPIO7_03		PIN14 = GPIO_AD_B1_02/GPIO6_18	PIN15 = GPIO_AD_B1_03/GPIO6_19
+//PIN16 = GPIO_AD_B1_07/GPIO6_23	PIN17 = GPIO_AD_B1_06/GPIO6_22	PIN18 = GPIO_AD_B1_01/GPIO6_17	PIN19 = GPIO_AD_B1_00/GPIO6_16
+//PIN20 = GPIO_AD_B1_10/GPIO6_26	PIN21 = GPIO_AD_B1_11/GPIO6_27	PIN22 = GPIO_AD_B1_08/GPIO6_24	PIN23 = GPIO_AD_B1_09/GPIO6_25
+//PIN24 = GPIO_AD_B0_12/GPIO6_12	PIN25 = GPIO_AD_B0_13/GPIO6_13	PIN26 = GPIO_AD_B1_14/GPIO6_30	PIN27 = GPIO_AD_B1_15/GPIO6_31
+//PIN28 = GPIO_EMC_32/GPIO8_18		PIN29 = GPIO_EMC_31/GPIO9_31	PIN30 = GPIO_EMC_37/GPIO8_23	PIN31 = GPIO_EMC_36/GPIO8_22
+//PIN32 = GPIO_B0_12/GPIO7_12		PIN33 = GPIO_EMC_07/GPIO9_7		PIN34 = GPIO_SD_B0_03/GPIO8_15	PIN35 = GPIO_SD_B0_02/GPIO8_14
+//PIN36 = GPIO_SD_B0_01/GPIO8_13	PIN37 = GPIO_SD_B0_00/GPIO8_12	PIN38 = GPIO_SD_B0_05/GPIO8_17	PIN39 = GPIO_SD_B0_04/GPIO8_16
 
+/*
 struct {
 	char *macro;
 	char *replacement;
@@ -49,9 +50,6 @@ struct {
 	{ "help",       "M115",    "Show help" },
 	{ NULL, NULL, NULL }
 };
-
-// External system tick counter (driven by ARM systick interrupt)
-extern volatile uint32_t Tick;
 
 // Axis' target steps (absolute) and encoder counts
 extern volatile int32_t Target[2];
@@ -152,24 +150,26 @@ void cdc_print(char *s)
 
 int8_t bboxstart=0, head_is_down=0;
 float bb[4]={ 0, 0, 0, 0};
+*/
 
 // Simple delay using ARM systick, set up for microseconds (see startup.c)
 void DelayUS(uint32_t us)
 {
-	uint32_t _time=Tick;
+	uint32_t _time=micros();
 
-	while((Tick-_time)<us);
+	while((micros()-_time)<us);
 }
 
 // Same delay, only scaled 1000x for milliseconds
 void DelayMS(uint32_t ms)
 {
-	uint32_t _time=Tick;
+	uint32_t _time=micros();
 
-	while((Tick-_time)<(ms*1000))
-		PollButton();
+	while((micros()-_time)<(ms*1000));
+//		PollButton();
 }
 
+/*
 // Resets CNC state to default
 void SetJobDefaults(void)
 {
@@ -903,30 +903,40 @@ void EndJob(void)
 		}
 	}
 
-/*	Alun Jones (full reset)
-	SetJobDefaults();
-	HomeXAxis(); */
+//	Alun Jones (full reset)
+//	SetJobDefaults();
+//	HomeXAxis();
 
 	// Return home at end of job, hopefully future will allow home position to be retained after load/unloads (for easier repeat jobs)
 	set_target(0.0f, 0.0f);
 	dda_move(calculate_feedrate_delay(100.0f));
 }
+*/
 
 int main(void)
 {
-	uint32_t lastactive = 0;
+//	uint32_t lastactive = 0;
 
 	// Head up/down solenoid
-	// Teensy pin 13 (GPIO7/3 output, also Teensy's onboard LED)
-	//PORTC->PCR[5]=PORT_PCR_MUX(1); <--Need to figure out iMX GPIO mux settings
+	// Teensy pin 13 (GPIO_B0_03/GPIO7_3 output, also Teensy's onboard LED)
+    IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_B0_03]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5);	// ALT5, GPIO
+    IOMUXC->SW_PAD_CTL_PAD[kIOMUXC_SW_PAD_CTL_PAD_GPIO_B0_03]=IOMUXC_SW_PAD_CTL_PAD_DSE(7);			// Drive strength, 7=max?
+    IOMUXC_GPR->GPR27 = 0xFFFFFFFF;
 	GPIO7->GDIR|=0x00000008;
 	GPIO7->DR_CLEAR|=0x00000008;
 
 	// Load button
-	// Teensy pin 14 (GPIO6/18 input)
-	//PORTD->PCR[1]=((PORTD->PCR[1]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x06)))|(PORT_PCR_MUX(0x01))); <--Need to figure out iMX GPIO mux settings
+	// Teensy pin 14 (GPIO_AD_B1_02/GPIO6_18 input)
+    IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_02]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5);	// ALT5, GPIO
 	GPIO6->GDIR&=~0x00040000;
 
+	while(1)
+	{
+		GPIO7->DR_TOGGLE|=0x00000008;
+		DelayMS(500);
+	}
+
+/*
 	// Initialize X/Y motor PWM channels, set 0 duty (FFFFh = 0%, 0 = 100%)
 	PWM_Init();
 	PWM_SetRatio(0x00, 0xFFFF);
@@ -1025,4 +1035,5 @@ int main(void)
 			lastactive=Tick;
 		}
 	}
+*/
 }

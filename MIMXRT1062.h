@@ -280,7 +280,6 @@ typedef enum IRQn {
 #define __FPU_PRESENT                  1         /**< Defines if an FPU is present or not */
 
 #include "core_cm7.h"                  /* Core Peripheral Access Layer */
-#include "system_MIMXRT1062.h"         /* Device specific configuration file */
 
 /*!
  * @}

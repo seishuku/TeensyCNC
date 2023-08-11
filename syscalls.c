@@ -1,4 +1,4 @@
-#include "MK20D10.h"
+#include "MIMXRT1062.h"
 #include <sys/stat.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -62,26 +62,24 @@ int _write(int file, char *ptr, int len)
 	return len;
 }
 
-caddr_t _sbrk(int incr)
+extern unsigned long _heap_start;
+extern unsigned long _heap_end;
+
+char *__brkval=(char *)&_heap_start;
+
+void *_sbrk(int incr)
 {
-	extern char end asm("end");
-	static char *heap_end;
-	char *prev_heap_end;
-
-	if(heap_end==0)
-		heap_end=&end;
-
-	prev_heap_end=heap_end;
-
-	if(heap_end+incr>stack_ptr)
+	char *prev=__brkval;
+	if(incr!=0)
 	{
-		errno=ENOMEM;
-		return (caddr_t)-1;
+		if(prev+incr>(char *)&_heap_end)
+		{
+			errno=ENOMEM;
+			return (void *)-1;
+		}
+		__brkval=prev+incr;
 	}
-
-	heap_end+=incr;
-
-	return (caddr_t)prev_heap_end;
+	return prev;
 }
 
 int _close(int file)
@@ -159,60 +157,34 @@ int _execve(char *name, char **argv, char **env)
 	return -1;
 }
 
-volatile extern uint32_t Tick;
+// Taken from Teensyduino
+extern uint32_t systick_millis_count;
+extern uint32_t systick_cycle_count;
+extern uint32_t scale_cpu_cycles_to_microseconds;
+uint32_t systick_safe_read=0;
 
-// Ripped from Teensyduino
 uint32_t micros(void)
 {
-	uint32_t count, current, istatus;
+	uint32_t smc, scc;
 
-	__asm__ volatile ("CPSID i");
-	current=SysTick->VAL;
-	count=Tick;
-	istatus=SCB->ICSR;
-	__asm__ volatile ("CPSIE i");
-
-	if((istatus&SCB_ICSR_PENDSTSET_Msk)&&current>50)
-		count++;
-
-	current=((72000000/1000)-1)-current;
-
-	return count*1000+current/(72000000/1000000);
-}
-
-// Ripped from Teensyduino
-void DelayMS(uint32_t ms)
-{
-	uint32_t start=micros();
-
-	if(ms>0)
+	do
 	{
-		while(1)
-		{
-			while((micros()-start)>=1000)
-			{
-				ms--;
+		__LDREXW(&systick_safe_read);
+		smc=systick_millis_count;
+		scc=systick_cycle_count;
+	} while(__STREXW(1, &systick_safe_read));
 
-				if(ms==0)
-					return;
+	uint32_t cyccnt=DWT_BASE;
 
-				start+=1000;
-			}
-		}
-	}
-}
+	asm volatile("" : : : "memory");
 
-// Ripped from Teensyduino
-void DelayUS(uint32_t usec)
-{
-	uint32_t n=usec*24; // 72MHz
+	uint32_t ccdelta=cyccnt-scc;
+	uint32_t frac=((uint64_t)ccdelta*scale_cpu_cycles_to_microseconds)>>32;
 
-	if(n==0)
-		return;
+	if(frac>1000)
+		frac=1000;
 
-	__asm__ volatile(
-		"L_%=_delayMicroseconds:\n"
-		"subs   %0, #1\n"
-		"bne    L_%=_delayMicroseconds\n"
-		: "+r" (n) : );
+	uint32_t usec=1000*smc+frac;
+
+	return usec;
 }

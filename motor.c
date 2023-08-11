@@ -42,16 +42,24 @@ const int8_t Quad_Table[4][4][4]=
 };
 
 /*
-0x0040 = 0000 0000 0100 0000 = PORT C6
-0x0080 = 0000 0000 1000 0000 = PORT C7
+Teensy 3.2:
+0x0040 = 0000 0000 0100 0000 = PORT C6 (encoder xA, pin 11)
+0x0080 = 0000 0000 1000 0000 = PORT C7 (encoder xB, pin 12)
 
-0x0001 = 0000 0000 0000 0001 = PORT B0
-0x0002 = 0000 0000 0000 0010 = PORT B1
+0x0001 = 0000 0000 0000 0001 = PORT B0 (encoder yA, pin 16)
+0x0002 = 0000 0000 0000 0010 = PORT B1 (encoder yB, pin 17)
+
+Teensy 4.0:
+0x00000004 = 0000 0000 0000 0000 0000 0000 0000 0100 = GPIO7/2 (encoder xA, pin 11)
+0x00000002 = 0000 0000 0000 0000 0000 0000 0000 0010 = GPIO7/1 (encoder xB, pin 12)
+
+0x00800000 = 0000 0000 1000 0000 0000 0000 0000 0000 = GPIO6/23 (encoder yA, pin 16)
+0x00400000 = 0000 0000 0100 0000 0000 0000 0000 0000 = GPIO6/22 (encoder yB, pin 17)
 */
 // Slots encoder pin status into a bit field, as a look up into Quad_Table for quadrature directional information
 // Returns 0, 1, 2, or 3, depending on which opto sensor is blocked and when.
-#define XENCODER_GET_PINS() ((GPIOC->PDIR&0x00C0)>>6)
-#define YENCODER_GET_PINS() ((GPIOB->PDIR&0x0003)>>0)
+#define XENCODER_GET_PINS() ((GPIO7->DR&0x00000006)>>0x01)
+#define YENCODER_GET_PINS() ((GPIO6->DR&0x00C00000)>>0x22)
 
 // Current encoder quadratic value
 uint8_t EncoderQuad[2];
@@ -91,12 +99,12 @@ void MotorCtrlY(int32_t PWM)
 	}
 }
 
-// X encoder interrupt
-void __attribute__ ((interrupt)) Cpu_ivINT_PORTC(void)
+void __attribute__ ((interrupt)) GPIO6_7_8_9_IRQHandler(void)
 {
 	int8_t new_step;
 	uint8_t c12;
 
+	// X encoder interrupt
 	// Check for interrupt flag for either input
 	if((PORTC->PCR[6]&PORT_PCR_ISF_MASK)||(PORTC->PCR[7]&PORT_PCR_ISF_MASK))
 	{
@@ -118,14 +126,8 @@ void __attribute__ ((interrupt)) Cpu_ivINT_PORTC(void)
 		else if(new_step!=0) // It's good?
 			EncoderPos[0]+=new_step; // Count it in whatever direction it's going
 	}
-}
 
-// Y encoder interrupt, exactly as X axis
-void __attribute__ ((interrupt)) Cpu_ivINT_PORTB(void)
-{
-	int8_t new_step;
-	uint8_t c12;
-
+	// Y encoder interrupt, exactly as X axis
 	if((PORTB->PCR[0]&PORT_PCR_ISF_MASK)||(PORTB->PCR[1]&PORT_PCR_ISF_MASK))
 	{
 		PORTB->PCR[0]|=PORT_PCR_ISF_MASK;
@@ -154,7 +156,7 @@ void __attribute__ ((interrupt)) Cpu_ivINT_PORTB(void)
 // Previous derivative error
 int32_t lastError[2]={ 0, 0 };
 
-void __attribute__ ((interrupt)) Cpu_ivINT_FTM1(void)
+void __attribute__ ((interrupt)) PIT_IRQHandler(void)
 {
 	// Is the overflow interrupt flag pending?
 	if(FTM1->SC&FTM_SC_TOF_MASK)
