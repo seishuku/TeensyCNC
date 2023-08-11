@@ -17,10 +17,10 @@
 #include <math.h>
 #include <ctype.h>
 #include "syscalls.h"
-#include "pwm.h"
-#include "motor.h"
-//#include "usb_dev.h"
-//#include "usb_serial.h"
+//#include "pwm.h"
+//#include "motor.h"
+#include "usb_dev.h"
+#include "usb_serial.h"
 
 //Teensy 4.0 pin to MCU pin routing/GPIO peripheral/signal group cheat sheet:
 // PIN0 = GPIO_AD_B0_03/GPIO6_3		 PIN1 = GPIO_AD_B0_02/GPIO6_2	 PIN2 = GPIO_EMC_04/GPIO9_4		 PIN3 = GPIO_EMC_05/GPIO9_5
@@ -34,7 +34,6 @@
 //PIN32 = GPIO_B0_12/GPIO7_12		PIN33 = GPIO_EMC_07/GPIO9_7		PIN34 = GPIO_SD_B0_03/GPIO8_15	PIN35 = GPIO_SD_B0_02/GPIO8_14
 //PIN36 = GPIO_SD_B0_01/GPIO8_13	PIN37 = GPIO_SD_B0_00/GPIO8_12	PIN38 = GPIO_SD_B0_05/GPIO8_17	PIN39 = GPIO_SD_B0_04/GPIO8_16
 
-/*
 struct {
 	char *macro;
 	char *replacement;
@@ -52,8 +51,12 @@ struct {
 };
 
 // Axis' target steps (absolute) and encoder counts
-extern volatile int32_t Target[2];
-extern volatile int32_t EncoderPos[2];
+//extern volatile int32_t Target[2];
+//extern volatile int32_t EncoderPos[2];
+
+// TODO: temp while porting
+volatile int32_t Target[2]={ 0, 0 };
+volatile int32_t EncoderPos[2]={ 0, 0 };
 
 // Simple min/max macros
 #ifndef min
@@ -150,7 +153,6 @@ void cdc_print(char *s)
 
 int8_t bboxstart=0, head_is_down=0;
 float bb[4]={ 0, 0, 0, 0};
-*/
 
 // Simple delay using ARM systick, set up for microseconds (see startup.c)
 void DelayUS(uint32_t us)
@@ -169,7 +171,6 @@ void DelayMS(uint32_t ms)
 //		PollButton();
 }
 
-/*
 // Resets CNC state to default
 void SetJobDefaults(void)
 {
@@ -182,15 +183,15 @@ void SetJobDefaults(void)
 // Resets Teensy into boot loader mode (for uploading new code)
 void EnterBootLoader(void)
 {
-	MotorDisable();
+//	MotorDisable();
 	INFO("Entering bootloader");
 
 	DelayMS(500);
 
-	__asm__ volatile("bkpt");
+	__asm__ volatile("bkpt #251"); // run bootloader
 
 	// NOT REACHED!
-	while (1);
+	while(1);
 }
 
 void HeadUp(void)
@@ -227,21 +228,21 @@ void PollButton(void)
 	// GPIO6, bit 19 (pin 14)
 	uint8_t state=!(GPIO6->DR&0x40000);
 
-	if (state != oldstate)
+	if (state!=oldstate)
 	{
-		last_transition=Tick;
+		last_transition=micros();
 		flagged=0;
 	}
 
 	// If the button is pressed and we've not yet flagged it and 
 	// the state has been stable for 5ms then flag it.
-	if((state==1)&&!flagged&&(Tick-last_transition>5000))
+	if((state==1)&&!flagged&&(micros()-last_transition>5000))
 	{
 		button_pressed=1;
 		flagged=1;
 	}
 
-	if((state==1)&&!bootflagged&&(Tick-last_transition>1500000))
+	if((state==1)&&!bootflagged&&(micros()-last_transition>1500000))
 	{
 		// If the button is held, enter the bootloader. This
 		// acts as an emergency stop on the motors and an emergency
@@ -763,15 +764,15 @@ void HomeXAxis(void)
 	HeadUp();
 
 	// Disable motor drive PID loop
-	MotorDisable();
+//	MotorDisable();
 
 	// Store current X encoder position
 	prevcount=EncoderPos[0];
 	// Store current tick
-	prevtime=Tick;
+	prevtime=micros();
 
 	// Drive the X motor home with enough torque to move it at a good pace, but not so much that it can't be stopped by the hard-stop.
-	MotorCtrlX(-40000);
+//	MotorCtrlX(-40000);
 
 	// Let it move for a few ticks to generate some delta
 	DelayMS(10);
@@ -779,7 +780,7 @@ void HomeXAxis(void)
 	while(1)
 	{
 		// Velocity of motion over 1mS (1000uS)
-		if((Tick-prevtime)>1000)
+		if((micros()-prevtime)>1000)
 		{
 			// Calculate the delta position from the last mS
 			int32_t dC=abs(EncoderPos[0]-prevcount);
@@ -790,12 +791,12 @@ void HomeXAxis(void)
 
 			// Otherwise, update the previous position/time and continue on
 			prevcount=EncoderPos[0];
-			prevtime=Tick;
+			prevtime=micros();
 		}
 	}
 
 	// Stop the motor and let it settle
-	MotorCtrlX(0);
+//	MotorCtrlX(0);
 	DelayMS(100);
 
 	// Zero out encoder and step positions
@@ -809,7 +810,7 @@ void HomeXAxis(void)
 
 	// Let it settle again and reenable the PID loop
 	DelayMS(100);
-	MotorEnable();
+//	MotorEnable();
 
 	// We're home!
 }
@@ -911,11 +912,10 @@ void EndJob(void)
 	set_target(0.0f, 0.0f);
 	dda_move(calculate_feedrate_delay(100.0f));
 }
-*/
 
 int main(void)
 {
-//	uint32_t lastactive = 0;
+	uint32_t lastactive = 0;
 
 	// Head up/down solenoid
 	// Teensy pin 13 (GPIO_B0_03/GPIO7_3 output, also Teensy's onboard LED)
@@ -930,25 +930,15 @@ int main(void)
     IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_02]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5);	// ALT5, GPIO
 	GPIO6->GDIR&=~0x00040000;
 
-	while(1)
-	{
-		GPIO7->DR_TOGGLE|=0x00000008;
-		DelayMS(500);
-	}
-
-/*
 	// Initialize X/Y motor PWM channels, set 0 duty (FFFFh = 0%, 0 = 100%)
-	PWM_Init();
-	PWM_SetRatio(0x00, 0xFFFF);
-	PWM_SetRatio(0x01, 0xFFFF);
-	PWM_SetRatio(0x05, 0xFFFF);
-	PWM_SetRatio(0x06, 0xFFFF);
+	//PWM_Init();
+	//PWM_SetRatio(0x00, 0xFFFF);
+	//PWM_SetRatio(0x01, 0xFFFF);
+	//PWM_SetRatio(0x05, 0xFFFF);
+	//PWM_SetRatio(0x06, 0xFFFF);
 
 	// Initialize motor PID control and encoder interrupts
-	Motor_Init();
-
-	// Initialize USB CDC virtual serial device
-	usb_init();
+	//Motor_Init();
 
 	// Home the X axis
 	HomeXAxis();
@@ -958,7 +948,7 @@ int main(void)
 
 	while(1)
 	{
-		uint32_t idle=(Tick-lastactive)>250000;
+		uint32_t idle=(micros()-lastactive)>250000;
 
 		if (idle&&(cancelling!=NO_CANCEL))
 			cancelling=NO_CANCEL;
@@ -978,7 +968,7 @@ int main(void)
 				cancelling=BUTTON_CANCEL;
 				EndJob();
 				RESULT("cancelled");
-				lastactive=Tick;
+				lastactive=micros();
 			}
 		}
 
@@ -1014,7 +1004,7 @@ int main(void)
 				serial_count=0;
 			}
 
-			lastactive=Tick;
+			lastactive=micros();
 		}
 
 		// CR/LF ends lines and starts command processing
@@ -1032,8 +1022,7 @@ int main(void)
 				buffer[i]=0;
 
 			serial_count=0;
-			lastactive=Tick;
+			lastactive=micros();
 		}
 	}
-*/
 }

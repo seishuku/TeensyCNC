@@ -3,7 +3,7 @@
 //
 // Motor PWM channel setup and duty cycle setting
 
-#include "MK20D10.h"
+#include "MIMXRT1062.h"
 #include "pwm.h"
 
 void PWM_Init(void)

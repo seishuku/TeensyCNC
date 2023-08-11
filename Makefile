@@ -7,11 +7,11 @@ OBJS = main.o startup.o syscalls.o
 #OBJS += motor.o pwm.o
 
 # USB CDC support
-#OBJS += USB/usb_desc.o USB/usb_dev.o USB/usb_mem.o USB/usb_serial.o
+OBJS += USB/usb.o USB/usb_desc.o USB/usb_serial.o
 
-CFLAGS = -std=gnu11 -Wall -fno-common -O2 -mcpu=cortex-m7 -mfloat-abi=hard -mfpu=fpv5-d16 -mthumb -I./USB -I./CMSIS -I.
+CFLAGS = -std=gnu11 -Wall -ffunction-sections -fdata-sections -O2 -mcpu=cortex-m7 -mfloat-abi=hard -mfpu=fpv5-d16 -mthumb -I./USB -I./CMSIS -I.
 ASFLAGS = -mcpu=cortex-m7 -mfloat-abi=hard -mfpu=fpv5-d16 -mthumb
-LDFLAGS  = -lm -specs=nosys.specs -nostartfiles -mcpu=cortex-m7 -mfloat-abi=hard -mfpu=fpv5-d16 -mthumb -Timxrt1062.ld
+LDFLAGS  = -Os -Wl,--gc-sections,--relax -lm -specs=nosys.specs -nostartfiles -mcpu=cortex-m7 -mfloat-abi=hard -mfpu=fpv5-d16 -mthumb -Timxrt1062.ld
 
 CC = arm-none-eabi-gcc
 AS = arm-none-eabi-as

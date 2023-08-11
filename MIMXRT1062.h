@@ -136,7 +136,7 @@ typedef enum IRQn {
   CAN1_IRQn                    = 36,               /**< CAN1 interrupt */
   CAN2_IRQn                    = 37,               /**< CAN2 interrupt */
   FLEXRAM_IRQn                 = 38,               /**< FlexRAM address out of range Or access hit IRQ */
-  KPP_IRQn                     = 39,               /**< Keypad nterrupt */
+  KPP_IRQn                     = 39,               /**< Keypad interrupt */
   TSC_DIG_IRQn                 = 40,               /**< TSC interrupt */
   GPR_IRQ_IRQn                 = 41,               /**< GPR interrupt */
   LCDIF_IRQn                   = 42,               /**< LCDIF interrupt */
