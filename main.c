@@ -2,13 +2,13 @@
 // Copyright 2023 Matt Williams
 //
 // g-code interpreter code is mostly based on RepRap and Marginally Clever's "How to make a Arduino CNC", though I've made a lot of changes.
-// USB CDC virtual serial is from Freescale's Processor Expert (I'm not crazy enough to write that from scratch!)
+// USB CDC virtual serial and most of the startup code is from Paul's Teensyduino.
 // Everything else is taken from some of my other projects or from scratch.
 //
 // This all can be improved drastically, but it's a well working CNC example. G-code interpreter needs syntax checking, badly.
 
-// Sep 9, 2018 - Modifications made by Alun Jones (macros, pen up/down on Z, bootloader entry, job tracing, help, etc!)
-// ??? ??, 2023 - Ported to Teensy 4
+// Sep 9, 2018 - Alum Jones: Macros, pen up/down on Z, bootloader entry, job tracing, help, etc!
+// ??? ??, 2023 - Matt Williams: Ported to Teensy 4
 
 #include "MIMXRT1062.h"
 #include <stdlib.h>
@@ -17,8 +17,8 @@
 #include <math.h>
 #include <ctype.h>
 #include "syscalls.h"
-//#include "pwm.h"
-//#include "motor.h"
+#include "pwm.h"
+#include "motor.h"
 #include "usb_dev.h"
 #include "usb_serial.h"
 
@@ -51,12 +51,8 @@ struct {
 };
 
 // Axis' target steps (absolute) and encoder counts
-//extern volatile int32_t Target[2];
-//extern volatile int32_t EncoderPos[2];
-
-// TODO: temp while porting
-volatile int32_t Target[2]={ 0, 0 };
-volatile int32_t EncoderPos[2]={ 0, 0 };
+extern volatile int32_t Target[2];
+extern volatile int32_t EncoderPos[2];
 
 // Simple min/max macros
 #ifndef min
@@ -167,8 +163,8 @@ void DelayMS(uint32_t ms)
 {
 	uint32_t _time=micros();
 
-	while((micros()-_time)<(ms*1000));
-//		PollButton();
+	while((micros()-_time)<(ms*1000))
+		PollButton();
 }
 
 // Resets CNC state to default
@@ -183,7 +179,7 @@ void SetJobDefaults(void)
 // Resets Teensy into boot loader mode (for uploading new code)
 void EnterBootLoader(void)
 {
-//	MotorDisable();
+	MotorDisable();
 	INFO("Entering bootloader");
 
 	DelayMS(500);
@@ -764,7 +760,7 @@ void HomeXAxis(void)
 	HeadUp();
 
 	// Disable motor drive PID loop
-//	MotorDisable();
+	MotorDisable();
 
 	// Store current X encoder position
 	prevcount=EncoderPos[0];
@@ -772,7 +768,7 @@ void HomeXAxis(void)
 	prevtime=micros();
 
 	// Drive the X motor home with enough torque to move it at a good pace, but not so much that it can't be stopped by the hard-stop.
-//	MotorCtrlX(-40000);
+	MotorCtrlX(-40000);
 
 	// Let it move for a few ticks to generate some delta
 	DelayMS(10);
@@ -796,7 +792,7 @@ void HomeXAxis(void)
 	}
 
 	// Stop the motor and let it settle
-//	MotorCtrlX(0);
+	MotorCtrlX(0);
 	DelayMS(100);
 
 	// Zero out encoder and step positions
@@ -810,7 +806,7 @@ void HomeXAxis(void)
 
 	// Let it settle again and reenable the PID loop
 	DelayMS(100);
-//	MotorEnable();
+	MotorEnable();
 
 	// We're home!
 }
@@ -938,13 +934,13 @@ int main(void)
 	//PWM_SetRatio(0x06, 0xFFFF);
 
 	// Initialize motor PID control and encoder interrupts
-	//Motor_Init();
+	Motor_Init();
 
 	// Home the X axis
-	HomeXAxis();
+	//HomeXAxis();
 
 	// Setup defaults
-	SetJobDefaults();
+	//SetJobDefaults();
 
 	while(1)
 	{

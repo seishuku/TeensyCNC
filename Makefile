@@ -4,7 +4,7 @@ PROJECT=main
 OBJS = main.o startup.o syscalls.o
 
 # additional module support
-#OBJS += motor.o pwm.o
+OBJS += motor.o pwm.o
 
 # USB CDC support
 OBJS += USB/usb.o USB/usb_desc.o USB/usb_serial.o

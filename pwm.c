@@ -8,6 +8,7 @@
 
 void PWM_Init(void)
 {
+#if 0
 	// Enable module clock
 	SIM->SCGC6|=SIM_SCGC6_FTM0_MASK;
 
@@ -68,18 +69,19 @@ void PWM_Init(void)
 
 	// Set up status and control register
 	FTM0->SC=FTM_SC_CLKS(0x01)|FTM_SC_PS(0x01);
+#endif
 }
 
 void PWM_SetRatio(uint8_t Channel, uint16_t Ratio)
 {
-	uint16_t Period, Duty;
+	//uint16_t Period, Duty;
 
-	Period=FTM0->MOD+1;
+	//Period=FTM0->MOD+1;
 
-	if(Period==0)
-		Duty=Ratio;
-	else
-		Duty=((Period*Ratio)+0x8000)>>0x10;
+	//if(Period==0)
+	//	Duty=Ratio;
+	//else
+	//	Duty=((Period*Ratio)+0x8000)>>0x10;
 
-	FTM0->CONTROLS[Channel].CnV=Duty;
+	//FTM0->CONTROLS[Channel].CnV=Duty;
 }

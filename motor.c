@@ -5,8 +5,10 @@
 
 // Alun Jones - Interrupt disable/enable while enabling/disabling motor, was causing MCU crashing.
 
-#include "MK20D10.h"
+#include "MIMXRT1062.h"
+#include <stdint.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include "pwm.h"
 
 #ifndef clamp
@@ -50,16 +52,17 @@ Teensy 3.2:
 0x0002 = 0000 0000 0000 0010 = PORT B1 (encoder yB, pin 17)
 
 Teensy 4.0:
-0x00000004 = 0000 0000 0000 0000 0000 0000 0000 0100 = GPIO7/2 (encoder xA, pin 11)
-0x00000002 = 0000 0000 0000 0000 0000 0000 0000 0010 = GPIO7/1 (encoder xB, pin 12)
+GPIO7 0x00000004 = 0000 0000 0000 0000 0000 0000 0000 0100 = GPIO7/2 (encoder Xa, pin 11, GPIO_B0_02)
+GPIO7 0x00000002 = 0000 0000 0000 0000 0000 0000 0000 0010 = GPIO7/1 (encoder Xb, pin 12, GPIO_B0_01)
 
-0x00800000 = 0000 0000 1000 0000 0000 0000 0000 0000 = GPIO6/23 (encoder yA, pin 16)
-0x00400000 = 0000 0000 0100 0000 0000 0000 0000 0000 = GPIO6/22 (encoder yB, pin 17)
+GPIO6 0x00400000 = 0000 0000 0100 0000 0000 0000 0000 0000 = GPIO6/22 (encoder Ya, pin 17, GPIO_AD_B1_06)
+GPIO6 0x00800000 = 0000 0000 1000 0000 0000 0000 0000 0000 = GPIO6/23 (encoder Yb, pin 16, GPIO_AD_B1_07)
 */
+
 // Slots encoder pin status into a bit field, as a look up into Quad_Table for quadrature directional information
 // Returns 0, 1, 2, or 3, depending on which opto sensor is blocked and when.
-#define XENCODER_GET_PINS() ((GPIO7->DR&0x00000006)>>0x01)
-#define YENCODER_GET_PINS() ((GPIO6->DR&0x00C00000)>>0x22)
+#define XENCODER_GET_PINS() (((GPIO7->DR&0x00000004)>>0x01)|((GPIO7->DR&0x00000002)>>0x01))
+#define YENCODER_GET_PINS() (((GPIO6->DR&0x00400000)>>0x15)|((GPIO6->DR&0x00800000)>>0x17))
 
 // Current encoder quadratic value
 uint8_t EncoderQuad[2];
@@ -67,7 +70,7 @@ uint8_t EncoderQuad[2];
 uint8_t EncoderPrevQuad[2];
 
 volatile int32_t Target[2]={ 0, 0 }; // Encoder coords to target (these do the moving)
-volatile int32_t EncoderPos[2]; // Actual encoder tracking coords
+volatile int32_t EncoderPos[2]={ 0, 0 }; // Actual encoder tracking coords
 
 // Set X axis motor PWM, neg values run opposite direction
 void MotorCtrlX(int32_t PWM)
@@ -99,23 +102,21 @@ void MotorCtrlY(int32_t PWM)
 	}
 }
 
-void __attribute__ ((interrupt)) GPIO6_7_8_9_IRQHandler(void)
+void GPIO6_7_8_9_IRQHandler(void)
 {
 	int8_t new_step;
 	uint8_t c12;
 
 	// X encoder interrupt
 	// Check for interrupt flag for either input
-	if((PORTC->PCR[6]&PORT_PCR_ISF_MASK)||(PORTC->PCR[7]&PORT_PCR_ISF_MASK))
+	if(GPIO7->ISR&0x00000006)
 	{
 		// Clear the flag(s)
-		PORTC->PCR[6]|=PORT_PCR_ISF_MASK;
-		PORTC->PCR[7]|=PORT_PCR_ISF_MASK;
+		GPIO7->ISR=0x00000006;
 
 		// Get the encoder status
 		c12=XENCODER_GET_PINS();
-		// Retreive directional data from quadrature lookup table
-		// Uses
+		// Retrieve directional data from quadrature lookup table
 		new_step=Quad_Table[EncoderPrevQuad[0]][EncoderQuad[0]][c12];
 		// Store the previous, last value
 		EncoderPrevQuad[0]=EncoderQuad[0];
@@ -128,12 +129,12 @@ void __attribute__ ((interrupt)) GPIO6_7_8_9_IRQHandler(void)
 	}
 
 	// Y encoder interrupt, exactly as X axis
-	if((PORTB->PCR[0]&PORT_PCR_ISF_MASK)||(PORTB->PCR[1]&PORT_PCR_ISF_MASK))
+	if(GPIO6->ISR&0x00C00000)
 	{
-		PORTB->PCR[0]|=PORT_PCR_ISF_MASK;
-		PORTB->PCR[1]|=PORT_PCR_ISF_MASK;
+		GPIO6->ISR=0x00C00000;
 
 		c12=YENCODER_GET_PINS();
+
 		new_step=Quad_Table[EncoderPrevQuad[1]][EncoderQuad[1]][c12];
 		EncoderPrevQuad[1]=EncoderQuad[1];
 		EncoderQuad[1]=c12;
@@ -156,14 +157,20 @@ void __attribute__ ((interrupt)) GPIO6_7_8_9_IRQHandler(void)
 // Previous derivative error
 int32_t lastError[2]={ 0, 0 };
 
-void __attribute__ ((interrupt)) PIT_IRQHandler(void)
+char buf[255];
+
+void PIT_IRQHandler(void)
 {
-	// Is the overflow interrupt flag pending?
-	if(FTM1->SC&FTM_SC_TOF_MASK)
+	// Is the interrupt flag pending?
+	if(PIT->CHANNEL[2].TFLG&PIT_TFLG_TIF_MASK)
 	{
 		// Clear flag
-		FTM1->SC&=~FTM_SC_TOF_MASK;
+		PIT->CHANNEL[2].TFLG=PIT_TFLG_TIF_MASK;
 
+		// TESTING: Making sure that the quadrature encoders are counting as they should
+		sprintf(buf, "X: %ld Y: %ld\r", EncoderPos[0], EncoderPos[1]);
+		cdc_print(buf);
+#if 0
 		// Run proportional control
 		// find the error term of current position - target
 		int32_t error[2]=
@@ -180,28 +187,27 @@ void __attribute__ ((interrupt)) PIT_IRQHandler(void)
 		// Store pervious error
 		lastError[0]=error[0];
 		lastError[1]=error[1];
+#endif
 	}
 }
 
-// Sets PID interrupt to system clock, enabling it.
+// Enables PID interrupt timer.
 void MotorEnable(void)
 {
 	lastError[0]=0;
 	lastError[1]=0;
 
 	__disable_irq();
-	FTM1->SC=(FTM1->SC&(~(FTM_SC_CLKS_MASK&FTM_SC_TOF_MASK)))|(0x08);
-	FTM1->SC=FTM_SC_TOIE_MASK|FTM_SC_CLKS(0x02)|FTM_SC_PS(0x00);
+	PIT->CHANNEL[2].TCTRL|=PIT_TCTRL_TEN_MASK;
 	__enable_irq();
 }
 
-// Removes clock source from PID interrupt timer, disabling it.
+// Disables PID interrupt timer.
 // Also sets axis motors to 0 PWM.
 void MotorDisable(void)
 {
 	__disable_irq();
-	FTM1->SC=(FTM1->SC&(~(FTM_SC_CLKS_MASK&FTM_SC_TOF_MASK)))|(0x00);
-	FTM1->SC=FTM_SC_TOIE_MASK|FTM_SC_CLKS(0x00)|FTM_SC_PS(0x00);
+	PIT->CHANNEL[2].TCTRL&=~PIT_TCTRL_TEN_MASK;
 	__enable_irq();
 
 	MotorCtrlX(0);
@@ -210,54 +216,48 @@ void MotorDisable(void)
 
 void Motor_Init(void)
 {
-	// Initialize enocder inputs with interrupts on both edges
-	// PB0/PB1 = Y A/B encoder input
-	PORTB->PCR[0]=(PORTB->PCR[0]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x06)))|PORT_PCR_MUX(0x01);
-	PORTB->PCR[0]=(PORTB->PCR[0]&~(PORT_PCR_IRQC(0x04)))|(PORT_PCR_ISF_MASK|PORT_PCR_IRQC(0x0B));
+	// Initialize encoder inputs with interrupts on both edges:
+	// GPIO6 0x00400000 = 0000 0000 0100 0000 0000 0000 0000 0000 = GPIO6/22 (encoder Ya, pin 17, GPIO_AD_B1_06)
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_06]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3)|IOMUXC_SW_PAD_CTL_PAD_PUS(3);	// ALT5 (GPIO), max speed, 100k pullup
+	GPIO6->EDGE_SEL|=0x00400000; // Set interrupt rising and falling edge
+	GPIO6->IMR|=0x00400000; // Enable interrupt
+	GPIO6->GDIR&=~0x00400000; // Set direction to input
 
-	PORTB->PCR[1]=(PORTB->PCR[1]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x06)))|PORT_PCR_MUX(0x01);
-	PORTB->PCR[1]=(PORTB->PCR[1]&~(PORT_PCR_IRQC(0x04)))|(PORT_PCR_ISF_MASK|PORT_PCR_IRQC(0x0B));
+	// GPIO6 0x00800000 = 0000 0000 1000 0000 0000 0000 0000 0000 = GPIO6/23 (encoder Yb, pin 16, GPIO_AD_B1_07)
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_07]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3)|IOMUXC_SW_PAD_CTL_PAD_PUS(3);	// ALT5 (GPIO), max speed, 100k pullup
+	GPIO6->EDGE_SEL|=0x00800000; // Set interrupt rising and falling edge
+	GPIO6->IMR|=0x00800000; // Enable interrupt
+	GPIO6->GDIR&=~0x00800000; // Set direction to input
 
-	NVIC_SetPriority(PORTB_IRQn, 0x50);
-	NVIC_EnableIRQ(PORTB_IRQn);
+	// GPIO7 0x00000004 = 0000 0000 0000 0000 0000 0000 0000 0100 = GPIO7/2 (encoder Xa, pin 11, GPIO_B0_02)
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_B0_02]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3)|IOMUXC_SW_PAD_CTL_PAD_PUS(3);	// ALT5 (GPIO), max speed, 100k pullup
+	GPIO7->EDGE_SEL|=0x00000004; // Set interrupt rising and falling edge
+	GPIO7->IMR|=0x00000004; // Enable interrupt
+	GPIO7->GDIR&=~0x00000004; // Set direction to input
 
-	// PC6/PC7 = X A/B encoder input
-	PORTC->PCR[6]=(PORTC->PCR[6]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x06)))|PORT_PCR_MUX(0x01);
-	PORTC->PCR[6]=(PORTC->PCR[6]&~(PORT_PCR_IRQC(0x04)))|(PORT_PCR_ISF_MASK|PORT_PCR_IRQC(0x0B));
+	// GPIO7 0x00000002 = 0000 0000 0000 0000 0000 0000 0000 0010 = GPIO7/1 (encoder Xb, pin 12, GPIO_B0_01)
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_B0_01]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3)|IOMUXC_SW_PAD_CTL_PAD_PUS(3);	// ALT5 (GPIO), max speed, 100k pullup
+	GPIO7->EDGE_SEL|=0x00000002; // Set interrupt rising and falling edge
+	GPIO7->IMR|=0x00000002; // Enable interrupt
+	GPIO7->GDIR&=~0x00000002; // Set direction to input
 
-	PORTC->PCR[7]=(PORTC->PCR[7]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x06)))|PORT_PCR_MUX(0x01);
-	PORTC->PCR[7]=(PORTC->PCR[7]&~(PORT_PCR_IRQC(0x04)))|(PORT_PCR_ISF_MASK|PORT_PCR_IRQC(0x0B));
+	// Set interrupt priority
+	NVIC_SetPriority(GPIO6_7_8_9_IRQn, 0x50);
+	// Enable interrupt
+	NVIC_EnableIRQ(GPIO6_7_8_9_IRQn);
 
-	NVIC_SetPriority(PORTC_IRQn, 0x50);
-	NVIC_EnableIRQ(PORTC_IRQn);
+	// Initialize interrupt timer for PID control:
+	// Enable PIT clock gate
+	CCM->CCGR1|=CCM_CCGR1_CG6_MASK;
 
-	// Initialize interrupt timer for PID control
-	SIM->SCGC6|=SIM_SCGC6_FTM1_MASK;
+	// Load value for timer, 17 clocks @ 66MHz
+	PIT->CHANNEL[2].LDVAL=66000000/4;
+	// Enable interrupts for the timer
+	PIT->CHANNEL[2].TCTRL|=PIT_TCTRL_TIE_MASK;
 
-	// Set up mode register
-	FTM1->MODE=FTM_MODE_FAULTM(0x00)|FTM_MODE_WPDIS_MASK;
-	// Clear status and control register
-	FTM1->SC=FTM_SC_CLKS(0x00)|FTM_SC_PS(0x00);
-	// Clear counter initial register
-	FTM1->CNTIN=FTM_CNTIN_INIT(0x00);
-	// Reset counter register
-	FTM1->CNT=FTM_CNT_COUNT(0x00);
-	// Clear channel status and control register
-	FTM1->CONTROLS[0].CnSC=0x00;
-	// Clear channel status and control register
-	FTM1->CONTROLS[1].CnSC=0x00;
-
-	// Set up modulo register
-	// Bus clock / Freq = FTM1_MOD
-	// 36MHz / Freq = FTM1_MOD
-	// MOD = 9 = 4000000Hz (4Mhz)
-	FTM1->MOD=FTM_MOD_MOD(9-1);
-
-	NVIC_SetPriority(FTM1_IRQn, 0x10);
-	NVIC_EnableIRQ(FTM1_IRQn);
-
-	// Set up status and control register
-	FTM1->SC=FTM_SC_TOIE_MASK|FTM_SC_CLKS(0x02)|FTM_SC_PS(0x00);
+	// Set priority and enable PIT interrupt
+	NVIC_SetPriority(PIT_IRQn, 0x10);
+	NVIC_EnableIRQ(PIT_IRQn);
 
 	// Initialize encoder variables
 	EncoderQuad[0]=XENCODER_GET_PINS();
@@ -265,4 +265,6 @@ void Motor_Init(void)
 
 	EncoderQuad[1]=YENCODER_GET_PINS();
 	EncoderPrevQuad[1]=EncoderQuad[1];
+
+	MotorEnable();
 }
