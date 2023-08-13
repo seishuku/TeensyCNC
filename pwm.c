@@ -6,82 +6,137 @@
 #include "MIMXRT1062.h"
 #include "pwm.h"
 
+extern volatile uint32_t F_BUS_ACTUAL;
+
+static const uint32_t Freq=40000;
+static uint16_t Cycles=0;
+
 void PWM_Init(void)
 {
-#if 0
-	// Enable module clock
-	SIM->SCGC6|=SIM_SCGC6_FTM0_MASK;
+	Cycles=(uint16_t)(F_BUS_ACTUAL/Freq);
 
-	// Set up mode register
-	FTM0->MODE=FTM_MODE_FAULTM(0x00)|FTM_MODE_WPDIS_MASK;
+	// PWM2 setup:
+	CCM->CCGR4|=CCM_CCGR4_CG9_MASK;		// PWM2 clock gate
 
-	// Clear status and control register
-	FTM0->SC=FTM_SC_CLKS(0x00)|FTM_SC_PS(0x00);
+	// Set up fault registers
+	PWM2->FCTRL=PWM_FCTRL_FAUTO(0xF)|PWM_FCTRL_FLVL(0xF);
+	PWM2->FSTS=PWM_FSTS_FFLAG_MASK;
+	PWM2->FFILT=0;
 
-	// Clear counter initial register
-	FTM0->CNTIN=FTM_CNTIN_INIT(0x00);
-	// Reset counter register
-	FTM0->CNT=FTM_CNT_COUNT(0x00);
+	// Clear load ok flag
+	PWM2->MCTRL|=PWM_MCTRL_CLDOK(15);
 
-	// Clear channel status and control registers
-	FTM0->CONTROLS[0].CnSC=0x00U;
-	FTM0->CONTROLS[1].CnSC=0x00U;
-	FTM0->CONTROLS[2].CnSC=0x00U;
-	FTM0->CONTROLS[3].CnSC=0x00U;
-	FTM0->CONTROLS[4].CnSC=0x00U;
-	FTM0->CONTROLS[5].CnSC=0x00U;
-	FTM0->CONTROLS[6].CnSC=0x00U;
-	FTM0->CONTROLS[7].CnSC=0x00U;
+	// Submodule 0, Select IPB clock source and independant mode
+	PWM2->SM[0].CTRL2=PWM_CTRL2_CLK_SEL(0)|PWM_CTRL2_INDEP_MASK|PWM_CTRL2_WAITEN_MASK|PWM_CTRL2_DBGEN_MASK;
+	PWM2->SM[0].CTRL=PWM_CTRL_FULL_MASK|PWM_CTRL_PRSC(1);
+	// Set up no duty at "cycles" frequency
+	PWM2->SM[0].INIT=0;
+	PWM2->SM[0].VAL0=Cycles>>1;
+	PWM2->SM[0].VAL1=Cycles-1;
+	PWM2->SM[0].VAL2=0;
+	PWM2->SM[0].VAL3=0;
+	// Set pin muxes
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_EMC_06]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(1);	// GPIO_EMC_06, mux 1 (PWM)
 
-	// Set up modulo register
-	// Bus clock / FTM0_MOD = PWM Freq
-	// Bus clock / PWM Freq = FTM0_MOD
-	// 36MHz / 1440 = 25KHz (0.04ms)
-	// 36MHz / 900 = 40KHz (0.025ms)
-	// 36MHz / 288 = 125KHz (0.008ms)
-	FTM0->MOD=FTM_MOD_MOD(900-1);
+	// Submodule 1, Select IPB clock source and independant mode
+	PWM2->SM[1].CTRL2=PWM_CTRL2_CLK_SEL(0)|PWM_CTRL2_INDEP_MASK|PWM_CTRL2_WAITEN_MASK|PWM_CTRL2_DBGEN_MASK;
+	PWM2->SM[1].CTRL=PWM_CTRL_FULL_MASK|PWM_CTRL_PRSC(1);
+	// Set up no duty at "cycles" frequency
+	PWM2->SM[1].INIT=0;
+	PWM2->SM[1].VAL0=Cycles>>1;
+	PWM2->SM[1].VAL1=Cycles-1;
+	PWM2->SM[1].VAL2=0;
+	PWM2->SM[1].VAL3=0;
+	// Set pin muxes
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_EMC_08]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(1);	// GPIO_EMC_08, mux 1 (PWM)
 
-	// Set up channel status and control register
-	FTM0->CONTROLS[0].CnSC=FTM_CnSC_MSB_MASK|FTM_CnSC_ELSB_MASK|FTM_CnSC_ELSA_MASK;
-	// Set up channel value register
-	FTM0->CONTROLS[0].CnV=FTM_CnV_VAL(0x00);
+	// Enable out on submodules 0 and 1
+	PWM2->OUTEN|=PWM_OUTEN_PWMA_EN(1)|PWM_OUTEN_PWMA_EN(2);
+	// Set load ok on all modules and run
+	PWM2->MCTRL|=PWM_MCTRL_LDOK(15)|PWM_MCTRL_RUN(15);
 
-	// Set up channel status and control register
-	FTM0->CONTROLS[1].CnSC=FTM_CnSC_MSB_MASK|FTM_CnSC_ELSB_MASK|FTM_CnSC_ELSA_MASK;
-	// Set up channel value register
-	FTM0->CONTROLS[1].CnV=FTM_CnV_VAL(0x00);
+	// PWM4 setup:
+	CCM->CCGR4|=CCM_CCGR4_CG11_MASK;	// PWM4 clock gate
 
-	// Set up channel status and control register
-	FTM0->CONTROLS[5].CnSC=FTM_CnSC_MSB_MASK|FTM_CnSC_ELSB_MASK|FTM_CnSC_ELSA_MASK;
-	// Set up channel value register
-	FTM0->CONTROLS[5].CnV=FTM_CnV_VAL(0x00);
+	// Set up fault registers
+	PWM4->FCTRL=PWM_FCTRL_FAUTO(0xF)|PWM_FCTRL_FLVL(0xF);
+	PWM4->FSTS=PWM_FSTS_FFLAG_MASK;
+	PWM4->FFILT=0;
 
-	// Set up channel status and control register
-	FTM0->CONTROLS[6].CnSC=FTM_CnSC_MSB_MASK|FTM_CnSC_ELSB_MASK|FTM_CnSC_ELSA_MASK;
-	// Set up channel value register
-	FTM0->CONTROLS[6].CnV=FTM_CnV_VAL(0x00);
+	// Clear load ok flag
+	PWM4->MCTRL|=PWM_MCTRL_CLDOK(15);
 
-	// Set up pin muxes
-	PORTC->PCR[1]=(PORTC->PCR[1]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x03)))|PORT_PCR_MUX(0x04);
-	PORTC->PCR[2]=(PORTC->PCR[2]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x03)))|PORT_PCR_MUX(0x04);
-	PORTD->PCR[5]=(PORTD->PCR[5]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x03)))|PORT_PCR_MUX(0x04);
-	PORTD->PCR[6]=(PORTD->PCR[6]&~(PORT_PCR_ISF_MASK|PORT_PCR_MUX(0x03)))|PORT_PCR_MUX(0x04);
+	// Submodule 0, Select IPB clock source and independant mode
+	PWM4->SM[0].CTRL2=PWM_CTRL2_CLK_SEL(0)|PWM_CTRL2_INDEP_MASK|PWM_CTRL2_WAITEN_MASK|PWM_CTRL2_DBGEN_MASK;
+	PWM4->SM[0].CTRL=PWM_CTRL_FULL_MASK|PWM_CTRL_PRSC(1);
+	// Set up no duty at "cycles" frequency
+	PWM4->SM[0].INIT=0;
+	PWM4->SM[0].VAL0=Cycles>>1;
+	PWM4->SM[0].VAL1=Cycles-1;
+	PWM4->SM[0].VAL2=0;
+	PWM4->SM[0].VAL3=0;
+	// Set pin muxes
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_08]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(1);	// GPIO_AD_B1_08, mux 1 (PWM)
 
-	// Set up status and control register
-	FTM0->SC=FTM_SC_CLKS(0x01)|FTM_SC_PS(0x01);
-#endif
+	// Submodule 1, Select IPB clock source and independant mode
+	PWM4->SM[1].CTRL2=PWM_CTRL2_CLK_SEL(0)|PWM_CTRL2_INDEP_MASK|PWM_CTRL2_WAITEN_MASK|PWM_CTRL2_DBGEN_MASK;
+	PWM4->SM[1].CTRL=PWM_CTRL_FULL_MASK|PWM_CTRL_PRSC(1);
+	// Set up no duty at "cycles" frequency
+	PWM4->SM[1].INIT=0;
+	PWM4->SM[1].VAL0=Cycles>>1;
+	PWM4->SM[1].VAL1=Cycles-1;
+	PWM4->SM[1].VAL2=0;
+	PWM4->SM[1].VAL3=0;
+	// Set pin muxes
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_09]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(1);	// GPIO_AD_B1_09, mux 1 (PWM)
+
+	// Enable out on submodules 0 and 1
+	PWM4->OUTEN|=PWM_OUTEN_PWMA_EN(1)|PWM_OUTEN_PWMA_EN(2);
+	// Set load ok on all modules and run
+	PWM4->MCTRL|=PWM_MCTRL_LDOK(15)|PWM_MCTRL_RUN(15);
 }
 
 void PWM_SetRatio(uint8_t Channel, uint16_t Ratio)
 {
-	//uint16_t Period, Duty;
+	// Calculate the duty from cycles
+	uint16_t Pulse=(Cycles*Ratio)/0xFFFF;
 
-	//Period=FTM0->MOD+1;
+	// Setup the PWM dutycycle
+	switch(Channel)
+	{
+		case 0:
+		{
+			PWM2->MCTRL|=PWM_MCTRL_CLDOK(0x1);
+			PWM2->SM[0].VAL3=Pulse;
+			PWM2->MCTRL|=PWM_MCTRL_LDOK(0x1);
+			break;
+		}
 
-	//if(Period==0)
-	//	Duty=Ratio;
-	//else
-	//	Duty=((Period*Ratio)+0x8000)>>0x10;
+		case 1:
+		{
+			PWM2->MCTRL|=PWM_MCTRL_CLDOK(0x2);
+			PWM2->SM[1].VAL3=Pulse;
+			PWM2->MCTRL|=PWM_MCTRL_LDOK(0x2);
+			break;
+		}
 
-	//FTM0->CONTROLS[Channel].CnV=Duty;
+		case 2:
+		{
+			PWM4->MCTRL|=PWM_MCTRL_CLDOK(0x1);
+			PWM4->SM[0].VAL3=Pulse;
+			PWM4->MCTRL|=PWM_MCTRL_LDOK(0x1);
+			break;
+		}
+
+		case 3:
+		{
+			PWM4->MCTRL|=PWM_MCTRL_CLDOK(0x2);
+			PWM4->SM[1].VAL3=Pulse;
+			PWM4->MCTRL|=PWM_MCTRL_LDOK(0x2);
+			break;
+		}
+
+		default:
+			break;
+	}
 }

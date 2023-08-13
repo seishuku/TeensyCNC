@@ -1,9 +1,9 @@
-<font size=5><b>This is an in-progress port to a Teensy 4.0.
+<font size=5><b>This is an in-progress port to a Teensy 4.0.</b></font>
 
-So far, it's booting code and USB serial is working...
-Need to work on motor controls.
+As of right now, this is "working". It won't properly process a Gcode file yet, I'm not sure why... Might be USB serial related.<br>
+Motor encoders are working, motor PWM is working, motor PID control seems to be working.
 
-NOTE: some pins will have to be changed, be sure to check Teensy wiring section at bottom!</b></font>
+<font size=10><b>NOTE: some pins changed, be sure to check wiring table at bottom!</b></font>
 
 TeensyCNC, CNC controller using a Teensy 4.0!
 

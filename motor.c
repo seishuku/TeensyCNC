@@ -61,7 +61,7 @@ GPIO6 0x00800000 = 0000 0000 1000 0000 0000 0000 0000 0000 = GPIO6/23 (encoder Y
 
 // Slots encoder pin status into a bit field, as a look up into Quad_Table for quadrature directional information
 // Returns 0, 1, 2, or 3, depending on which opto sensor is blocked and when.
-#define XENCODER_GET_PINS() (((GPIO7->DR&0x00000004)>>0x01)|((GPIO7->DR&0x00000002)>>0x01))
+#define XENCODER_GET_PINS() (((GPIO7->DR&0x00000004)>>0x02)|((GPIO7->DR&0x00000002)>>0x00))
 #define YENCODER_GET_PINS() (((GPIO6->DR&0x00400000)>>0x15)|((GPIO6->DR&0x00800000)>>0x17))
 
 // Current encoder quadratic value
@@ -77,13 +77,13 @@ void MotorCtrlX(int32_t PWM)
 {
 	if(PWM>0)
 	{
-		PWM_SetRatio(0x05, clamp((uint16_t)65535-abs(PWM), 0, 65535));
-		PWM_SetRatio(0x06, 65535);
+		PWM_SetRatio(0, 0);
+		PWM_SetRatio(1, clamp(abs(PWM), 0, 65535));
 	}
 	else
 	{
-		PWM_SetRatio(0x05, 65535);
-		PWM_SetRatio(0x06, clamp((uint16_t)65535-abs(PWM), 0, 65535));
+		PWM_SetRatio(0, clamp(abs(PWM), 0, 65535));
+		PWM_SetRatio(1, 0);
 	}
 }
 
@@ -92,13 +92,13 @@ void MotorCtrlY(int32_t PWM)
 {
 	if(PWM>0)
 	{
-		PWM_SetRatio(0x00, clamp((uint16_t)65535-abs(PWM), 0, 65535));
-		PWM_SetRatio(0x01, 65535);
+		PWM_SetRatio(2, clamp(abs(PWM), 0, 65535));
+		PWM_SetRatio(3, 0);
 	}
 	else
 	{
-		PWM_SetRatio(0x00, 65535);
-		PWM_SetRatio(0x01, clamp((uint16_t)65535-abs(PWM), 0, 65535));
+		PWM_SetRatio(2, 0);
+		PWM_SetRatio(3, clamp(abs(PWM), 0, 65535));
 	}
 }
 
@@ -150,14 +150,12 @@ void GPIO6_7_8_9_IRQHandler(void)
 // PID stuff
 
 //Position multiplier
-#define KP 5000.0f
+const float KP=5000.0f;
 // Derivative multiplier
-#define KD 24000.0f
+const float KD=24000.0f;
 
 // Previous derivative error
 int32_t lastError[2]={ 0, 0 };
-
-char buf[255];
 
 void PIT_IRQHandler(void)
 {
@@ -167,10 +165,6 @@ void PIT_IRQHandler(void)
 		// Clear flag
 		PIT->CHANNEL[2].TFLG=PIT_TFLG_TIF_MASK;
 
-		// TESTING: Making sure that the quadrature encoders are counting as they should
-		sprintf(buf, "X: %ld Y: %ld\r", EncoderPos[0], EncoderPos[1]);
-		cdc_print(buf);
-#if 0
 		// Run proportional control
 		// find the error term of current position - target
 		int32_t error[2]=
@@ -187,7 +181,6 @@ void PIT_IRQHandler(void)
 		// Store pervious error
 		lastError[0]=error[0];
 		lastError[1]=error[1];
-#endif
 	}
 }
 
@@ -218,31 +211,31 @@ void Motor_Init(void)
 {
 	// Initialize encoder inputs with interrupts on both edges:
 	// GPIO6 0x00400000 = 0000 0000 0100 0000 0000 0000 0000 0000 = GPIO6/22 (encoder Ya, pin 17, GPIO_AD_B1_06)
-	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_06]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3)|IOMUXC_SW_PAD_CTL_PAD_PUS(3);	// ALT5 (GPIO), max speed, 100k pullup
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_06]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3);	// ALT5 (GPIO), max speed
 	GPIO6->EDGE_SEL|=0x00400000; // Set interrupt rising and falling edge
 	GPIO6->IMR|=0x00400000; // Enable interrupt
 	GPIO6->GDIR&=~0x00400000; // Set direction to input
 
 	// GPIO6 0x00800000 = 0000 0000 1000 0000 0000 0000 0000 0000 = GPIO6/23 (encoder Yb, pin 16, GPIO_AD_B1_07)
-	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_07]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3)|IOMUXC_SW_PAD_CTL_PAD_PUS(3);	// ALT5 (GPIO), max speed, 100k pullup
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_07]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3);	// ALT5 (GPIO), max speed
 	GPIO6->EDGE_SEL|=0x00800000; // Set interrupt rising and falling edge
 	GPIO6->IMR|=0x00800000; // Enable interrupt
 	GPIO6->GDIR&=~0x00800000; // Set direction to input
 
 	// GPIO7 0x00000004 = 0000 0000 0000 0000 0000 0000 0000 0100 = GPIO7/2 (encoder Xa, pin 11, GPIO_B0_02)
-	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_B0_02]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3)|IOMUXC_SW_PAD_CTL_PAD_PUS(3);	// ALT5 (GPIO), max speed, 100k pullup
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_B0_02]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3);	// ALT5 (GPIO), max speed
 	GPIO7->EDGE_SEL|=0x00000004; // Set interrupt rising and falling edge
 	GPIO7->IMR|=0x00000004; // Enable interrupt
 	GPIO7->GDIR&=~0x00000004; // Set direction to input
 
 	// GPIO7 0x00000002 = 0000 0000 0000 0000 0000 0000 0000 0010 = GPIO7/1 (encoder Xb, pin 12, GPIO_B0_01)
-	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_B0_01]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3)|IOMUXC_SW_PAD_CTL_PAD_PUS(3);	// ALT5 (GPIO), max speed, 100k pullup
+	IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_B0_01]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5)|IOMUXC_SW_PAD_CTL_PAD_SPEED(3);	// ALT5 (GPIO), max speed
 	GPIO7->EDGE_SEL|=0x00000002; // Set interrupt rising and falling edge
 	GPIO7->IMR|=0x00000002; // Enable interrupt
 	GPIO7->GDIR&=~0x00000002; // Set direction to input
 
 	// Set interrupt priority
-	NVIC_SetPriority(GPIO6_7_8_9_IRQn, 0x50);
+	NVIC_SetPriority(GPIO6_7_8_9_IRQn, 0x20);
 	// Enable interrupt
 	NVIC_EnableIRQ(GPIO6_7_8_9_IRQn);
 
@@ -250,8 +243,8 @@ void Motor_Init(void)
 	// Enable PIT clock gate
 	CCM->CCGR1|=CCM_CCGR1_CG6_MASK;
 
-	// Load value for timer, 17 clocks @ 66MHz
-	PIT->CHANNEL[2].LDVAL=66000000/4;
+	// Load value for timer, 66MHz/frequency = load value
+	PIT->CHANNEL[2].LDVAL=(66000000/100000)-1;
 	// Enable interrupts for the timer
 	PIT->CHANNEL[2].TCTRL|=PIT_TCTRL_TIE_MASK;
 

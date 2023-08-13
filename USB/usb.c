@@ -152,6 +152,7 @@ __attribute__((section(".flashmem"))) void usb_init(void)
 	// Port Change Detect, USB Reset Received, DCSuspend.
 	USB1->USBINTR=USB_USBINTR_UE_MASK|USB_USBINTR_UEE_MASK|USB_USBINTR_URE_MASK|USB_USBINTR_SLE_MASK;
 
+	NVIC_SetPriority(USB_OTG1_IRQn, 0x10);
 	NVIC_EnableIRQ(USB_OTG1_IRQn);
 
 	USB1->USBCMD=USB_USBCMD_RS_MASK;

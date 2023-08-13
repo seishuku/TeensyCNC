@@ -150,20 +150,24 @@ void cdc_print(char *s)
 int8_t bboxstart=0, head_is_down=0;
 float bb[4]={ 0, 0, 0, 0};
 
-// Simple delay using ARM systick, set up for microseconds (see startup.c)
+extern uint32_t F_CPU_ACTUAL;
+
+// Simple delay in microseconds
 void DelayUS(uint32_t us)
 {
-	uint32_t _time=micros();
+	uint32_t begin=DWT->CYCCNT;
+	uint32_t cycles=F_CPU_ACTUAL/1000000*us;
 
-	while((micros()-_time)<us);
+	while(DWT->CYCCNT-begin<cycles);
 }
 
 // Same delay, only scaled 1000x for milliseconds
 void DelayMS(uint32_t ms)
 {
-	uint32_t _time=micros();
+	uint32_t begin=DWT->CYCCNT;
+	uint32_t cycles=F_CPU_ACTUAL/1000000*(ms*1000);
 
-	while((micros()-_time)<(ms*1000))
+	while(DWT->CYCCNT-begin<cycles)
 		PollButton();
 }
 
@@ -281,7 +285,7 @@ uint32_t calculate_feedrate_delay(float feedrate)
 	else
 		total=ds[1];
 
-	return ((distance*60000000.0f)/feedrate)/total;	
+	return ((distance*60000000.0f)/feedrate)/total;
 }
 
 // DDA line move code, optimized from "How to make a Arduino CNC", though it's pretty generic IMO
@@ -371,7 +375,6 @@ void dda_move(uint32_t delay)
 			}
 
 			DelayUS(delay);
-			PollButton();
 		}
 	}
 
@@ -917,7 +920,6 @@ int main(void)
 	// Teensy pin 13 (GPIO_B0_03/GPIO7_3 output, also Teensy's onboard LED)
     IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_B0_03]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5);	// ALT5, GPIO
     IOMUXC->SW_PAD_CTL_PAD[kIOMUXC_SW_PAD_CTL_PAD_GPIO_B0_03]=IOMUXC_SW_PAD_CTL_PAD_DSE(7);			// Drive strength, 7=max?
-    IOMUXC_GPR->GPR27 = 0xFFFFFFFF;
 	GPIO7->GDIR|=0x00000008;
 	GPIO7->DR_CLEAR|=0x00000008;
 
@@ -926,21 +928,21 @@ int main(void)
     IOMUXC->SW_MUX_CTL_PAD[kIOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_02]=IOMUXC_SW_MUX_CTL_PAD_MUX_MODE(5);	// ALT5, GPIO
 	GPIO6->GDIR&=~0x00040000;
 
-	// Initialize X/Y motor PWM channels, set 0 duty (FFFFh = 0%, 0 = 100%)
-	//PWM_Init();
-	//PWM_SetRatio(0x00, 0xFFFF);
-	//PWM_SetRatio(0x01, 0xFFFF);
-	//PWM_SetRatio(0x05, 0xFFFF);
-	//PWM_SetRatio(0x06, 0xFFFF);
+	// Initialize X/Y motor PWM channels, set 0 duty (65535 = 100%, 0 = 0%)
+	PWM_Init();
+	PWM_SetRatio(0, 0);
+	PWM_SetRatio(1, 0);
+	PWM_SetRatio(2, 0);
+	PWM_SetRatio(3, 0);
 
 	// Initialize motor PID control and encoder interrupts
 	Motor_Init();
 
 	// Home the X axis
-	//HomeXAxis();
+	HomeXAxis();
 
 	// Setup defaults
-	//SetJobDefaults();
+	SetJobDefaults();
 
 	while(1)
 	{
