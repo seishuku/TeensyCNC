@@ -1,13 +1,15 @@
 // WIP ESP32 TeensyCNC
-// This main is just for testing PWM outputs.
+// This main is just for testing motor control.
 
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_log.h"
 #include "pwm.h"
 #include "motor.h"
 
 extern volatile int32_t Target[2];
+extern volatile int32_t EncoderPos[2];
 
 void PID_callback(void);
 
@@ -16,26 +18,22 @@ void app_main(void)
     PWM_Init();
     Motor_Init();
     MotorEnable();
-    
-    uint32_t a=0, b=0, c=0, d=0;
+
+    bool dir=false;
 
     while(1)
     {
-        PWM_SetRatio(0, a);
-        PWM_SetRatio(1, b);
-        PWM_SetRatio(2, c);
-        PWM_SetRatio(3, d);
+        ESP_EARLY_LOGI("TeensyCNC", "Target X: %d Encoder X: %d", Target[0], EncoderPos[0]);
 
-        if(a<512)
-            a++;
-        else if(b<512)
-            b++;
-        else if(c<512)
-            c++;
-        else if(d<512)
-            d++;
+        if(dir)
+            Target[0]-=10;
         else
-            a=b=c=d=0;
+            Target[0]+=10;
+
+        if(Target[0]>1000)
+            dir=true;
+        else if(Target[0]<-1000)
+            dir=false;
 
         vTaskDelay(10/portTICK_PERIOD_MS);
     }

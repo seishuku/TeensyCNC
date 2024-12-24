@@ -49,7 +49,7 @@ static const int8_t Quad_Table[4][4][4]=
 // Returns 0, 1, 2, or 3, depending on which opto sensor is blocked and when.
 
 // GPIO_X_INPUT_PINS = 0b0000000000000000000000000000000000110000
-// GPIO_X_INPUT_PINS = 0b0000000000000000000000110000000000000000
+// GPIO_Y_INPUT_PINS = 0b0000000000000000000000110000000000000000
 
 #define GPIO_X_INPUT_PINS ((1ULL<<4)|(1ULL<<5))
 #define GPIO_Y_INPUT_PINS ((1ULL<<16)|(1ULL<<17))
@@ -73,17 +73,20 @@ volatile int32_t Target[2]={ 0, 0 }; // Encoder coords to target (these do the m
 volatile int32_t EncoderPos[2]; // Actual encoder tracking coords
 
 // Set X axis motor PWM, neg values run opposite direction
+// The divide by 64 is to get the PWM value into the new range the ESP32 is needing.
+// Previous Teensy3 setup used 0-65535, ESP32 is 0-1023...
+// TODO: Probably re-scale PID parameters instead?
 void MotorCtrlX(int32_t PWM)
 {
 	if(PWM>0)
 	{
-		PWM_SetRatio(0, clamp(abs(PWM), 0, PWM_MAX_RATIO));
+		PWM_SetRatio(0, clamp(abs(PWM)/64, 0, PWM_MAX_RATIO));
 		PWM_SetRatio(1, 0);
 	}
 	else
 	{
 		PWM_SetRatio(0, 0);
-		PWM_SetRatio(1, clamp(abs(PWM), 0, PWM_MAX_RATIO));
+		PWM_SetRatio(1, clamp(abs(PWM)/64, 0, PWM_MAX_RATIO));
 	}
 }
 
@@ -92,13 +95,13 @@ void MotorCtrlY(int32_t PWM)
 {
 	if(PWM>0)
 	{
-		PWM_SetRatio(2, clamp(abs(PWM), 0, PWM_MAX_RATIO));
+		PWM_SetRatio(2, clamp(abs(PWM)/64, 0, PWM_MAX_RATIO));
 		PWM_SetRatio(3, 0);
 	}
 	else
 	{
 		PWM_SetRatio(2, 0);
-		PWM_SetRatio(3, clamp(abs(PWM), 0, PWM_MAX_RATIO));
+		PWM_SetRatio(3, clamp(abs(PWM)/64, 0, PWM_MAX_RATIO));
 	}
 }
 
@@ -117,7 +120,8 @@ static void IRAM_ATTR Xencoder_isr_callback(void *arg)
 	// Store the current, last value
 	EncoderQuad[0]=c12;
 
-	if(new_step==3) { } // 3 is an error
+	if(new_step==3) // 3 is an error
+		ESP_EARLY_LOGI("TeensyCNC", "X encoder error.");
 	else if(new_step!=0) // It's good?
 		EncoderPos[0]+=new_step; // Count it in whatever direction it's going
 }
@@ -134,8 +138,7 @@ static void IRAM_ATTR Yencoder_isr_callback(void *arg)
 	EncoderQuad[1]=c12;
 
 	if(new_step==3)
-	{
-	}
+		ESP_EARLY_LOGI("TeensyCNC", "Y encoder error.");
 	else if(new_step!=0&&new_step<3)
 		EncoderPos[1]+=new_step;
 }
@@ -150,7 +153,7 @@ static void IRAM_ATTR Yencoder_isr_callback(void *arg)
 // Previous derivative error
 int32_t lastError[2]={ 0, 0 };
 
-void PID_callback(void)
+void PID_callback(void *arg)
 {
 	// Run proportional control
 	// find the error term of current position - target
@@ -162,17 +165,13 @@ void PID_callback(void)
 
 	//generalized PID formula
 	//correction = Kp * error + Kd * (error - prevError)
-	// MotorCtrlX(KP*error[0]+KD*(error[0]-lastError[0]));
-	// MotorCtrlY(KP*error[1]+KD*(error[1]-lastError[1]));
+	MotorCtrlX(KP*error[0]+KD*(error[0]-lastError[0]));
+	MotorCtrlY(KP*error[1]+KD*(error[1]-lastError[1]));
 
 	// Store pervious error
 	lastError[0]=error[0];
 	lastError[1]=error[1];
-
-	ESP_EARLY_LOGI("TeensyCNC", "%d %d", error[0], error[1]);
 }
-
-static bool motorEnabled=false;
 
 // Sets PID interrupt to system clock, enabling it.
 void MotorEnable(void)
@@ -180,7 +179,7 @@ void MotorEnable(void)
 	lastError[0]=0;
 	lastError[1]=0;
 
-    esp_timer_start_periodic(PIDtimer, 100000);
+    esp_timer_start_periodic(PIDtimer, 100);
 }
 
 // Removes clock source from PID interrupt timer, disabling it.
@@ -226,7 +225,7 @@ void Motor_Init(void)
 	EncoderPrevQuad[1]=EncoderQuad[1];
 
     ESP_ERROR_CHECK(esp_timer_create(&(esp_timer_create_args_t) {
-        .callback=PID_callback,
-        .name = "PIDTimer"
+        .callback=&PID_callback,
+        .name="PIDTimer"
     }, &PIDtimer));
 }
