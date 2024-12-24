@@ -9,10 +9,13 @@
 
 extern volatile int32_t Target[2];
 
+void PID_callback(void);
+
 void app_main(void)
 {
     PWM_Init();
     Motor_Init();
+    MotorEnable();
     
     uint32_t a=0, b=0, c=0, d=0;
 

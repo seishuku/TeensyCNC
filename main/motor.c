@@ -103,8 +103,10 @@ void MotorCtrlY(int32_t PWM)
 }
 
 // X encoder interrupt
-static bool IRAM_ATTR Xencoder_isr_callback(void *args)
+static void IRAM_ATTR Xencoder_isr_callback(void *arg)
 {
+	uint32_t gpio_num=(uint32_t)arg;
+
 	// Get the encoder status
 	uint8_t c12=XENCODER_GET_PINS();
 	// Retreive directional data from quadrature lookup table
@@ -118,13 +120,13 @@ static bool IRAM_ATTR Xencoder_isr_callback(void *args)
 	if(new_step==3) { } // 3 is an error
 	else if(new_step!=0) // It's good?
 		EncoderPos[0]+=new_step; // Count it in whatever direction it's going
-
-	return true;
 }
 
 // Y encoder interrupt, exactly as X axis
-static bool IRAM_ATTR Yencoder_isr_callback(void *args)
+static void IRAM_ATTR Yencoder_isr_callback(void *arg)
 {
+	uint32_t gpio_num=(uint32_t)arg;
+
 	uint8_t c12=YENCODER_GET_PINS();
 	int8_t new_step=Quad_Table[EncoderPrevQuad[1]][EncoderQuad[1]][c12];
 	
@@ -136,8 +138,6 @@ static bool IRAM_ATTR Yencoder_isr_callback(void *args)
 	}
 	else if(new_step!=0&&new_step<3)
 		EncoderPos[1]+=new_step;
-
-	return true;
 }
 
 // PID stuff
@@ -150,7 +150,7 @@ static bool IRAM_ATTR Yencoder_isr_callback(void *args)
 // Previous derivative error
 int32_t lastError[2]={ 0, 0 };
 
-static void PID_callback(void)
+void PID_callback(void)
 {
 	// Run proportional control
 	// find the error term of current position - target
@@ -162,12 +162,14 @@ static void PID_callback(void)
 
 	//generalized PID formula
 	//correction = Kp * error + Kd * (error - prevError)
-	MotorCtrlX(KP*error[0]+KD*(error[0]-lastError[0]));
-	MotorCtrlY(KP*error[1]+KD*(error[1]-lastError[1]));
+	// MotorCtrlX(KP*error[0]+KD*(error[0]-lastError[0]));
+	// MotorCtrlY(KP*error[1]+KD*(error[1]-lastError[1]));
 
 	// Store pervious error
 	lastError[0]=error[0];
 	lastError[1]=error[1];
+
+	ESP_EARLY_LOGI("TeensyCNC", "%d %d", error[0], error[1]);
 }
 
 static bool motorEnabled=false;
@@ -193,6 +195,8 @@ void MotorDisable(void)
 
 void Motor_Init(void)
 {
+	gpio_install_isr_service(0);
+
 	// Initialize enocder inputs with interrupts on both edges
 	ESP_ERROR_CHECK(gpio_config(&(gpio_config_t) {
 		.pin_bit_mask=GPIO_X_INPUT_PINS,
@@ -201,6 +205,8 @@ void Motor_Init(void)
 		.pull_down_en=GPIO_PULLDOWN_DISABLE,
 		.intr_type=GPIO_INTR_ANYEDGE,
 	}));
+    gpio_isr_handler_add(4, Xencoder_isr_callback, NULL);
+    gpio_isr_handler_add(5, Xencoder_isr_callback, NULL);
 
 	ESP_ERROR_CHECK(gpio_config(&(gpio_config_t) {
 		.pin_bit_mask=GPIO_Y_INPUT_PINS,
@@ -209,6 +215,8 @@ void Motor_Init(void)
 		.pull_down_en=GPIO_PULLDOWN_DISABLE,
 		.intr_type=GPIO_INTR_ANYEDGE,
 	}));
+    gpio_isr_handler_add(16, Yencoder_isr_callback, NULL);
+    gpio_isr_handler_add(17, Yencoder_isr_callback, NULL);
 
 	// Initialize encoder variables
 	EncoderQuad[0]=XENCODER_GET_PINS();
@@ -218,7 +226,7 @@ void Motor_Init(void)
 	EncoderPrevQuad[1]=EncoderQuad[1];
 
     ESP_ERROR_CHECK(esp_timer_create(&(esp_timer_create_args_t) {
-        .callback=&PID_callback,
+        .callback=PID_callback,
         .name = "PIDTimer"
     }, &PIDtimer));
 }
