@@ -1,0 +1,8 @@
+# This file was generated using idf.py save-defconfig. It can be edited manually.
+# Espressif IoT Development Framework (ESP-IDF) 5.3.1 Project Minimal Configuration
+#
+CONFIG_IDF_TARGET="esp32"
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLE_50_FEATURES_SUPPORTED=n
+CONFIG_BT_BLE_42_FEATURES_SUPPORTED=y
+CONFIG_OPENTHREAD_RX_ON_WHEN_IDLE=y
